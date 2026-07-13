@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from mcp_server.tools import snapshots as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
@@ -39,8 +40,7 @@ def snapshot_list(dataset: DatasetOption = None, target: TargetOption = None) ->
 @cli_errors
 def snapshot_create(dataset: str, name: str, target: TargetOption = None) -> None:
     """Create a ZFS snapshot 'dataset@name'."""
-    conn, _ = get_connection(target)
-    snapshots.create_snapshot(conn, dataset, name)
+    gov.snapshot_create(dataset=dataset, name=name, target=target)
     console.print(f"[green]Created snapshot {dataset}@{name}[/]")
 
 
@@ -57,6 +57,5 @@ def snapshot_delete(
         )
         return
     double_confirm("delete", f"snapshot {snapshot_id}")
-    conn, _ = get_connection(target)
-    snapshots.delete_snapshot(conn, snapshot_id)
+    gov.snapshot_delete(snapshot_id=snapshot_id, target=target)
     console.print(f"[green]Deleted snapshot {snapshot_id}[/]")

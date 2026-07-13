@@ -7,6 +7,7 @@ import json
 import typer
 from rich.console import Console
 
+from mcp_server.tools import datasets as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
@@ -51,6 +52,5 @@ def dataset_create(
             parameters={"name": name},
         )
         return
-    conn, _ = get_connection(target)
-    datasets.create_dataset(conn, name)
+    gov.dataset_create(name=name, target=target)
     console.print(f"[green]Created dataset '{name}'[/]")

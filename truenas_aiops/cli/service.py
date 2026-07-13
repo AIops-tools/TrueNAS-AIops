@@ -6,6 +6,7 @@ import json
 
 import typer
 
+from mcp_server.tools import services as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
@@ -42,6 +43,5 @@ def service_restart(
         )
         return
     double_confirm("restart", f"service {service}")
-    conn, _ = get_connection(target)
-    services.restart_service(conn, service)
+    gov.service_restart(service=service, target=target)
     console.print(f"[green]Restarted service '{service}'[/]")

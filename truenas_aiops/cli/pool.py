@@ -8,6 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from mcp_server.tools import pools as gov
 from truenas_aiops.cli._common import (
     TargetOption,
     cli_errors,
@@ -71,6 +72,5 @@ def pool_capacity(target: TargetOption = None) -> None:
 @cli_errors
 def pool_scrub_start(pool_name: str, target: TargetOption = None) -> None:
     """Start a scrub (integrity check) on a pool."""
-    conn, _ = get_connection(target)
-    pools.scrub_start(conn, pool_name)
+    gov.pool_scrub_start(pool_name=pool_name, target=target)
     console.print(f"[green]Started scrub on pool '{pool_name}'[/] (poll with 'pool scrub-status')")
