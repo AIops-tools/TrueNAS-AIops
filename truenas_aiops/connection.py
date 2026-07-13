@@ -19,13 +19,26 @@ The httpx client is injectable for tests: pass ``client=`` to
 
 from __future__ import annotations
 
+import atexit
+import weakref
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from truenas_aiops.config import AppConfig, TargetConfig, load_config
 
 _TIMEOUT = 30.0
+
+
+def _seg(value: Any) -> str:
+    """URL-encode one path segment (agent-supplied id) for safe interpolation.
+
+    TrueNAS ids (datasets like ``tank/data``, snapshots like ``tank/data@snap1``)
+    must be percent-encoded when placed in a URL path — this also prevents an
+    id containing ``../`` or ``?`` from rewriting the request path.
+    """
+    return quote(str(value), safe="")
 
 
 class TrueNASApiError(Exception):
@@ -127,6 +140,7 @@ class ConnectionManager:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
         self._connections: dict[str, TrueNASConnection] = {}
+        _MANAGERS.add(self)
 
     @classmethod
     def from_config(cls, config: AppConfig | None = None) -> ConnectionManager:
@@ -161,3 +175,20 @@ class ConnectionManager:
 
     def list_connected(self) -> list[str]:
         return list(self._connections.keys())
+
+
+# Managers hold cached httpx clients; close them all at interpreter exit so
+# sockets are released deterministically (a WeakSet so short-lived CLI managers
+# can still be garbage-collected normally).
+_MANAGERS: weakref.WeakSet[ConnectionManager] = weakref.WeakSet()
+
+
+def _close_all_managers() -> None:
+    for mgr in list(_MANAGERS):
+        try:
+            mgr.disconnect_all()
+        except Exception:  # noqa: BLE001 — exit-time cleanup must never raise
+            pass
+
+
+atexit.register(_close_all_managers)

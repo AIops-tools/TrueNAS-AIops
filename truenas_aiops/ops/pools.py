@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from truenas_aiops.connection import _seg
 from truenas_aiops.ops._util import as_list, s
 
 
@@ -35,7 +36,7 @@ def list_pools(conn: Any) -> list[dict]:
 
 def get_pool(conn: Any, pool_id: str) -> dict:
     """[READ] Return detail for a single pool by id."""
-    pool = conn.get(f"/pool/id/{pool_id}")
+    pool = conn.get(f"/pool/id/{_seg(pool_id)}")
     summary = _pool_summary(pool if isinstance(pool, dict) else {})
     if isinstance(pool, dict):
         summary["path"] = s(pool.get("path"), 256)
@@ -45,7 +46,7 @@ def get_pool(conn: Any, pool_id: str) -> dict:
 
 def pool_status(conn: Any, pool_id: str) -> dict:
     """[READ] Return the health/scan status of a single pool (topology summary)."""
-    pool = conn.get(f"/pool/id/{pool_id}")
+    pool = conn.get(f"/pool/id/{_seg(pool_id)}")
     if not isinstance(pool, dict):
         return {}
     scan = pool.get("scan") or {}
@@ -66,7 +67,7 @@ def pool_status(conn: Any, pool_id: str) -> dict:
 
 def scrub_status(conn: Any, pool_id: str) -> dict:
     """[READ] Return the current scrub scan state for a pool."""
-    pool = conn.get(f"/pool/id/{pool_id}")
+    pool = conn.get(f"/pool/id/{_seg(pool_id)}")
     scan = pool.get("scan") or {} if isinstance(pool, dict) else {}
     if not isinstance(scan, dict):
         scan = {}

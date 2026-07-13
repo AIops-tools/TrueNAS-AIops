@@ -90,10 +90,17 @@ def test_all_modules_import():
 
 
 @pytest.mark.unit
-def test_version():
+def test_version_matches_pyproject():
+    """__version__ is single-sourced from package metadata; it must track
+    pyproject.toml so a release bump can never ship a stale self-report."""
+    import tomllib
+    from pathlib import Path
+
     import truenas_aiops
 
-    assert truenas_aiops.__version__ == "0.1.0"
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    expected = tomllib.loads(pyproject.read_text("utf-8"))["project"]["version"]
+    assert truenas_aiops.__version__ == expected
 
 
 @pytest.mark.unit
@@ -217,7 +224,8 @@ def test_snapshot_delete_captures_before_state():
     result = ops.delete_snapshot(conn, "tank/data@snap1")
     assert result["action"] == "delete_snapshot"
     assert result["priorState"]["id"] == "tank/data@snap1"
-    conn.delete.assert_called_once_with("/zfs/snapshot/id/tank/data@snap1")
+    # The id is one URL path segment: '/' and '@' must be percent-encoded.
+    conn.delete.assert_called_once_with("/zfs/snapshot/id/tank%2Fdata%40snap1")
 
 
 @pytest.mark.unit
@@ -320,3 +328,45 @@ def test_connection_bearer_auth_and_error_translation(monkeypatch):
         conn.get("/notfound")
     assert ei.value.status_code == 404
     assert "not found" in str(ei.value).lower()
+
+
+@pytest.mark.unit
+def test_path_traversal_in_agent_supplied_id_is_encoded():
+    """An id containing '../' must never reach the client as a raw path segment."""
+    from truenas_aiops.ops import datasets as ds_ops
+    from truenas_aiops.ops import pools as pool_ops
+    from truenas_aiops.ops import snapshots as snap_ops
+
+    conn = MagicMock(name="conn")
+    conn.get.return_value = {}
+    conn.delete.return_value = True
+
+    ds_ops.get_dataset(conn, "../system/info")
+    pool_ops.get_pool(conn, "../../etc")
+    snap_ops.delete_snapshot(conn, "../zfs/other@x")
+
+    for call in list(conn.get.call_args_list) + list(conn.delete.call_args_list):
+        path = call.args[0]
+        assert "../" not in path, f"raw traversal survived into request path: {path}"
+    assert conn.get.call_args_list[0].args[0] == "/pool/dataset/id/..%2Fsystem%2Finfo"
+
+
+@pytest.mark.unit
+def test_connection_manager_registers_for_atexit_cleanup():
+    """Cached httpx clients are closed at interpreter exit via the atexit hook."""
+    import truenas_aiops.connection as conn_mod
+    from truenas_aiops.config import AppConfig
+
+    mgr = conn_mod.ConnectionManager(AppConfig(targets=[]))
+    assert mgr in conn_mod._MANAGERS
+
+    closed = {"n": 0}
+
+    class _Conn:
+        def close(self):
+            closed["n"] += 1
+
+    mgr._connections["nas1"] = _Conn()
+    conn_mod._close_all_managers()
+    assert closed["n"] == 1
+    assert mgr.list_connected() == []

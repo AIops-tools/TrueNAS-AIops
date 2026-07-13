@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from truenas_aiops.connection import _seg
 from truenas_aiops.ops._util import as_list, s
 
 
@@ -45,7 +46,7 @@ def list_datasets(conn: Any) -> list[dict]:
 
 def get_dataset(conn: Any, dataset_id: str) -> dict:
     """[READ] Return detail for a single dataset by id (e.g. ``tank/data``)."""
-    ds = conn.get(f"/pool/dataset/id/{dataset_id}")
+    ds = conn.get(f"/pool/dataset/id/{_seg(dataset_id)}")
     return _dataset_summary(ds if isinstance(ds, dict) else {})
 
 

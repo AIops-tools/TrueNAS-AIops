@@ -2,7 +2,7 @@
 
 TrueNAS SCALE REST v2.0 list endpoints return a bare JSON array; a few wrap
 results in ``{"data": [...]}``. ``as_list`` normalises both. All API-returned
-text reaches the caller only after ``sanitize()`` (prompt-injection defense).
+text reaches the caller only after ``sanitize()`` (output hygiene).
 """
 
 from __future__ import annotations

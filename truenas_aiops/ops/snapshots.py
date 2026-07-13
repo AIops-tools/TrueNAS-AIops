@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from truenas_aiops.connection import _seg
 from truenas_aiops.ops._util import as_list, s
 
 
@@ -72,5 +73,5 @@ def delete_snapshot(conn: Any, snapshot_id: str) -> dict:
     (a deleted snapshot cannot be reconstructed).
     """
     prior = _find_snapshot(conn, snapshot_id)
-    conn.delete(f"/zfs/snapshot/id/{snapshot_id}")
+    conn.delete(f"/zfs/snapshot/id/{_seg(snapshot_id)}")
     return {"id": s(snapshot_id, 256), "action": "delete_snapshot", "priorState": prior}

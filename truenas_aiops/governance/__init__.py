@@ -8,7 +8,8 @@ any external skill family — this package is its own copy of the harness:
     and undo-token recording.
   - unified SQLite audit log under ``~/.truenas-aiops/`` (override with
     ``TRUENAS_AIOPS_HOME``).
-  - ``sanitize`` — prompt-injection defense for API-returned text.
+  - ``sanitize`` — output hygiene for API-returned text (control/format-char
+    stripping + truncation; encoding-level defense-in-depth).
 
 State lives under ``ops_home()`` (default ``~/.truenas-aiops``).
 """
