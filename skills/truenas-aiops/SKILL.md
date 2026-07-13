@@ -179,6 +179,7 @@ All operations are automatically audited via the bundled `@governed_tool` decora
 - API key stored **encrypted** in `~/.truenas-aiops/secrets.enc` (Fernet/AES-128 + scrypt key derivation; chmod 600) — never plaintext on disk; the master password is never stored, only a per-store salt + ciphertext
 - Every tool call logged to `~/.truenas-aiops/audit.db` (local SQLite audit DB; relocate with `TRUENAS_AIOPS_HOME`)
 - Policy rules enforced via `~/.truenas-aiops/rules.yaml` (deny rules, maintenance windows, risk tiers)
+- **Secure by default (v0.2.0+)**: with no `~/.truenas-aiops/rules.yaml`, high/critical operations are denied unless `TRUENAS_AUDIT_APPROVED_BY` names an approver (set `TRUENAS_AUDIT_RATIONALE` too). `truenas-aiops init` seeds a starter rules.yaml; an operator-authored rules file is honoured as-is.
 - Budget / runaway guard caps cumulative tool calls and wall-time, and trips on tight scrub/poll loops
 - Undo store records the inverse descriptor for `snapshot_create`
 - Graduated-autonomy risk tiers gate write operations (require a recorded approver for the highest tiers)
