@@ -17,6 +17,7 @@ from truenas_aiops.cli.secret import secret_app
 from truenas_aiops.cli.service import service_app
 from truenas_aiops.cli.snapshot import snapshot_app
 from truenas_aiops.cli.system import system_cmd
+from truenas_aiops.cli.undo import undo_app
 
 app = typer.Typer(
     name="truenas-aiops",
@@ -32,6 +33,7 @@ app.add_typer(alert_app, name="alert")
 app.add_typer(service_app, name="service")
 app.add_typer(replication_app, name="replication")
 app.add_typer(secret_app, name="secret")
+app.add_typer(undo_app, name="undo")
 app.command("init")(init_cmd)
 app.command("overview")(overview_cmd)
 app.command("system")(system_cmd)
