@@ -14,15 +14,24 @@ from truenas_aiops.ops import snapshots as ops
 
 @mcp.tool()
 @governed_tool(risk_level="low")
-@tool_errors("list")
-def snapshot_list(dataset: Optional[str] = None, target: Optional[str] = None) -> list:
+@tool_errors("dict")
+def snapshot_list(
+    dataset: Optional[str] = None,
+    limit: int = ops.DEFAULT_SNAPSHOT_LIMIT,
+    target: Optional[str] = None,
+) -> dict:
     """[READ] List ZFS snapshots, optionally filtered to one dataset.
+
+    Returns {"snapshots": [...], "returned": N, "limit": L, "truncated": bool}.
+    When "truncated" is true there are more snapshots than were returned —
+    re-run with a higher limit or filter to one dataset.
 
     Args:
         dataset: Optional dataset path to filter (e.g. 'tank/data').
+        limit: Max snapshot rows to return (default 200).
         target: TrueNAS target name from config.
     """
-    return ops.list_snapshots(_get_connection(target), dataset)
+    return ops.list_snapshots(_get_connection(target), dataset, limit)
 
 
 @mcp.tool()

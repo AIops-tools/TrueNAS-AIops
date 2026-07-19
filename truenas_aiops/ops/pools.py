@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from truenas_aiops.connection import _seg
+from truenas_aiops.governance import opt_str
 from truenas_aiops.ops._util import as_list, s
 
 
@@ -20,8 +21,8 @@ def _pool_summary(pool: dict) -> dict:
     """Reduce a pool record to a high-signal summary."""
     return {
         "id": pool.get("id"),
-        "name": s(pool.get("name"), 128),
-        "status": s(pool.get("status"), 32),
+        "name": opt_str(pool.get("name"), 128),
+        "status": opt_str(pool.get("status"), 32),
         "healthy": pool.get("healthy"),
         "size": pool.get("size"),
         "allocated": pool.get("allocated"),
@@ -39,7 +40,7 @@ def get_pool(conn: Any, pool_id: str) -> dict:
     pool = conn.get(f"/pool/id/{_seg(pool_id)}")
     summary = _pool_summary(pool if isinstance(pool, dict) else {})
     if isinstance(pool, dict):
-        summary["path"] = s(pool.get("path"), 256)
+        summary["path"] = opt_str(pool.get("path"), 256)
         summary["encrypt"] = pool.get("encrypt")
     return summary
 
@@ -53,12 +54,12 @@ def pool_status(conn: Any, pool_id: str) -> dict:
     topology = pool.get("topology") or {}
     return {
         "id": pool.get("id"),
-        "name": s(pool.get("name"), 128),
-        "status": s(pool.get("status"), 32),
+        "name": opt_str(pool.get("name"), 128),
+        "status": opt_str(pool.get("status"), 32),
         "healthy": pool.get("healthy"),
         "scan": {
-            "function": s(scan.get("function"), 32) if isinstance(scan, dict) else "",
-            "state": s(scan.get("state"), 32) if isinstance(scan, dict) else "",
+            "function": opt_str(scan.get("function"), 32) if isinstance(scan, dict) else None,
+            "state": opt_str(scan.get("state"), 32) if isinstance(scan, dict) else None,
             "percentage": scan.get("percentage") if isinstance(scan, dict) else None,
         },
         "dataVdevs": len(topology.get("data", [])) if isinstance(topology, dict) else None,
@@ -73,12 +74,12 @@ def scrub_status(conn: Any, pool_id: str) -> dict:
         scan = {}
     return {
         "id": pool.get("id") if isinstance(pool, dict) else None,
-        "function": s(scan.get("function"), 32),
-        "state": s(scan.get("state"), 32),
+        "function": opt_str(scan.get("function"), 32),
+        "state": opt_str(scan.get("state"), 32),
         "percentage": scan.get("percentage"),
         "errors": scan.get("errors"),
-        "startTime": s(scan.get("start_time"), 64),
-        "endTime": s(scan.get("end_time"), 64),
+        "startTime": opt_str(scan.get("start_time"), 64),
+        "endTime": opt_str(scan.get("end_time"), 64),
     }
 
 
@@ -93,8 +94,8 @@ def pool_capacity(conn: Any) -> list[dict]:
             used_pct = round(allocated / size * 100, 1)
         rows.append(
             {
-                "name": s(p.get("name"), 128),
-                "status": s(p.get("status"), 32),
+                "name": opt_str(p.get("name"), 128),
+                "status": opt_str(p.get("status"), 32),
                 "healthy": p.get("healthy"),
                 "size": size,
                 "allocated": allocated,
@@ -117,7 +118,7 @@ def scrub_start(conn: Any, pool_name: str) -> dict:
         for p in as_list(conn.get("/pool")):
             if p.get("name") == pool_name:
                 scan = p.get("scan") or {}
-                prior = {"state": s(scan.get("state"), 32)} if isinstance(scan, dict) else {}
+                prior = {"state": opt_str(scan.get("state"), 32)} if isinstance(scan, dict) else {}
                 break
     except Exception:  # noqa: BLE001 — advisory context only
         prior = {}

@@ -59,8 +59,8 @@ def test_list_replication_handles_missing_and_nondict_job():
         {"id": 2, "name": "bad-job", "job": "not-a-dict"},  # job wrong type
     ]
     rows = repl_ops.list_replication(conn)
-    assert rows[0]["state"] == ""  # missing job -> empty state
-    assert rows[1]["state"] == ""  # non-dict job -> _job_state returns {}
+    assert rows[0]["state"] is None  # missing job -> absent state, not ""
+    assert rows[1]["state"] is None  # non-dict job -> _job_state returns {}
 
 
 @pytest.mark.unit
@@ -153,9 +153,10 @@ def test_smart_test_results_handles_empty_and_nonlist_tests():
         {"disk": "sdd", "tests": ["not-a-dict"]},  # first entry not a dict
     ]
     rows = disk_ops.smart_test_results(conn)
-    assert rows[0]["latestStatus"] == ""
-    assert rows[1]["latestStatus"] == ""
-    assert rows[2]["latestStatus"] == ""
+    # No usable test record -> the status is absent, not an empty string.
+    assert rows[0]["latestStatus"] is None
+    assert rows[1]["latestStatus"] is None
+    assert rows[2]["latestStatus"] is None
     assert [r["disk"] for r in rows] == ["sdb", "sdc", "sdd"]
 
 
@@ -270,7 +271,7 @@ def test_get_pool_nondict_yields_empty_summary_without_detail():
     result = pool_ops.get_pool(conn, "tank")
     # summary of {} -> path/encrypt not added
     assert "path" not in result
-    assert result["name"] == ""
+    assert result["name"] is None
 
 
 @pytest.mark.unit
@@ -304,7 +305,7 @@ def test_pool_status_tolerates_nondict_scan_and_topology():
     conn = MagicMock(name="conn")
     conn.get.return_value = {"id": "tank", "name": "tank", "scan": "x", "topology": "y"}
     result = pool_ops.pool_status(conn, "tank")
-    assert result["scan"] == {"function": "", "state": "", "percentage": None}
+    assert result["scan"] == {"function": None, "state": None, "percentage": None}
     assert result["dataVdevs"] is None
 
 
@@ -336,7 +337,7 @@ def test_scrub_status_nondict_pool_and_scan():
     conn.get.return_value = None
     result = pool_ops.scrub_status(conn, "tank")
     assert result["id"] is None
-    assert result["function"] == ""
+    assert result["function"] is None
 
 
 @pytest.mark.unit
@@ -430,12 +431,14 @@ def test_list_snapshots_filters_by_dataset():
         {"id": "tank/a@s1", "name": "tank/a@s1", "dataset": "tank/a", "snapshot_name": "s1"},
         {"id": "tank/b@s1", "name": "tank/b@s1", "dataset": "tank/b", "snapshot_name": "s1"},
     ]
-    rows = snap_ops.list_snapshots(conn, dataset="tank/a")
+    result = snap_ops.list_snapshots(conn, dataset="tank/a")
     conn.get.assert_called_once_with("/zfs/snapshot")
-    assert [r["dataset"] for r in rows] == ["tank/a"]
+    assert [r["dataset"] for r in result["snapshots"]] == ["tank/a"]
+    assert result["returned"] == 1
+    assert result["truncated"] is False
     # unfiltered returns both
     conn.get.reset_mock()
-    assert len(snap_ops.list_snapshots(conn)) == 2
+    assert len(snap_ops.list_snapshots(conn)["snapshots"]) == 2
 
 
 @pytest.mark.unit
@@ -473,3 +476,33 @@ def test_health_overview_alerts_partial_failure_isolated():
     assert "error" in data["alerts"]
     assert data["pools"]["total"] == 0
     assert data["services"]["total"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# snapshots.py — the truncation envelope announces itself
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_list_snapshots_truncates_and_says_so():
+    """A capped read must report that it was capped, not look like a full answer."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [
+        {"id": f"tank/a@s{i}", "dataset": "tank/a", "snapshot_name": f"s{i}"}
+        for i in range(5)
+    ]
+    result = snap_ops.list_snapshots(conn, limit=2)
+    assert result["returned"] == 2
+    assert result["limit"] == 2
+    assert result["truncated"] is True
+    assert len(result["snapshots"]) == 2
+
+
+@pytest.mark.unit
+def test_list_snapshots_exactly_at_the_limit_is_not_truncated():
+    """The measured count is the source of truth — a length coincidence is not."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [
+        {"id": f"tank/a@s{i}", "dataset": "tank/a"} for i in range(2)
+    ]
+    result = snap_ops.list_snapshots(conn, limit=2)
+    assert result["returned"] == 2
+    assert result["truncated"] is False

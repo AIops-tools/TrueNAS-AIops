@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from truenas_aiops.ops._util import as_list, s
+from truenas_aiops.governance import opt_str
+from truenas_aiops.ops._util import as_list
 
 
 def _job_state(record: dict) -> dict:
@@ -18,7 +19,7 @@ def _job_state(record: dict) -> dict:
     job = record.get("job") or {}
     if not isinstance(job, dict):
         return {}
-    return {"state": s(job.get("state"), 32), "progress": (job.get("progress") or {})}
+    return {"state": opt_str(job.get("state"), 32), "progress": (job.get("progress") or {})}
 
 
 def list_replication(conn: Any) -> list[dict]:
@@ -28,11 +29,11 @@ def list_replication(conn: Any) -> list[dict]:
         rows.append(
             {
                 "id": r.get("id"),
-                "name": s(r.get("name"), 128),
-                "direction": s(r.get("direction"), 16),
-                "transport": s(r.get("transport"), 16),
+                "name": opt_str(r.get("name"), 128),
+                "direction": opt_str(r.get("direction"), 16),
+                "transport": opt_str(r.get("transport"), 16),
                 "enabled": r.get("enabled"),
-                "state": _job_state(r).get("state", ""),
+                "state": _job_state(r).get("state"),
             }
         )
     return rows
@@ -45,11 +46,11 @@ def list_cloudsync(conn: Any) -> list[dict]:
         rows.append(
             {
                 "id": r.get("id"),
-                "description": s(r.get("description"), 128),
-                "direction": s(r.get("direction"), 16),
-                "path": s(r.get("path"), 256),
+                "description": opt_str(r.get("description"), 128),
+                "direction": opt_str(r.get("direction"), 16),
+                "path": opt_str(r.get("path"), 256),
                 "enabled": r.get("enabled"),
-                "state": _job_state(r).get("state", ""),
+                "state": _job_state(r).get("state"),
             }
         )
     return rows

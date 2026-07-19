@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from truenas_aiops.governance import opt_str
 from truenas_aiops.ops._util import as_list, s
 
 
@@ -19,8 +20,8 @@ def _service_summary(svc: dict) -> dict:
     """Reduce a service record to a high-signal summary."""
     return {
         "id": svc.get("id"),
-        "service": s(svc.get("service"), 64),
-        "state": s(svc.get("state"), 32),
+        "service": opt_str(svc.get("service"), 64),
+        "state": opt_str(svc.get("state"), 32),
         "enable": svc.get("enable"),
     }
 

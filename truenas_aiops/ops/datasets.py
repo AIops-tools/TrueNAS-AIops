@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from truenas_aiops.connection import _seg
+from truenas_aiops.governance import opt_str
 from truenas_aiops.ops._util import as_list, s
 
 
@@ -29,13 +30,13 @@ def _dataset_summary(ds: dict) -> dict:
         return v
 
     return {
-        "id": s(ds.get("id"), 256),
-        "name": s(ds.get("name"), 256),
-        "type": s(ds.get("type"), 32),
-        "pool": s(ds.get("pool"), 128),
+        "id": opt_str(ds.get("id"), 256),
+        "name": opt_str(ds.get("name"), 256),
+        "type": opt_str(ds.get("type"), 32),
+        "pool": opt_str(ds.get("pool"), 128),
         "used": _val("used"),
         "available": _val("available"),
-        "mountpoint": s(ds.get("mountpoint"), 256),
+        "mountpoint": opt_str(ds.get("mountpoint"), 256),
     }
 
 
@@ -62,7 +63,7 @@ def create_dataset(conn: Any, name: str, pool: str | None = None) -> dict:
     created_id = result.get("id") if isinstance(result, dict) else None
     return {
         "name": s(name, 256),
-        "pool": s(pool, 128),
+        "pool": opt_str(pool, 128),
         "action": "create_dataset",
         "id": s(created_id, 256) if created_id else s(name, 256),
     }

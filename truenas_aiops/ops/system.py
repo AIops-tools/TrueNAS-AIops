@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from truenas_aiops.ops._util import s
+from truenas_aiops.governance import opt_str
 
 
 def system_info(conn: Any) -> dict:
@@ -17,11 +17,11 @@ def system_info(conn: Any) -> dict:
     if not isinstance(info, dict):
         return {}
     return {
-        "version": s(info.get("version"), 64),
-        "hostname": s(info.get("hostname"), 128),
-        "systemProduct": s(info.get("system_product"), 128),
+        "version": opt_str(info.get("version"), 64),
+        "hostname": opt_str(info.get("hostname"), 128),
+        "systemProduct": opt_str(info.get("system_product"), 128),
         "physmem": info.get("physmem"),
         "cores": info.get("cores"),
-        "uptime": s(info.get("uptime"), 64),
+        "uptime": opt_str(info.get("uptime"), 64),
         "loadavg": info.get("loadavg"),
     }

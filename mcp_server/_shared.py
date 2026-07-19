@@ -75,7 +75,7 @@ def tool_errors(shape: str = "dict") -> Callable:
 mcp = FastMCP(
     "truenas-aiops",
     instructions=(
-        "TrueNAS SCALE storage operations (preview): a one-shot health "
+        "TrueNAS SCALE storage operations: a one-shot health "
         "'overview'; system info; ZFS pools (list/get/status, scrub status & "
         "start, capacity); datasets (list/get/create); snapshots (list/create/"
         "delete); disks and S.M.A.R.T. test results; alerts; services (list/"

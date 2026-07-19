@@ -28,12 +28,27 @@ DatasetOption = Annotated[
 ]
 
 
+LimitOption = Annotated[
+    int, typer.Option("--limit", help="Max snapshot rows to return")
+]
+
+
 @snapshot_app.command("list")
 @cli_errors
-def snapshot_list(dataset: DatasetOption = None, target: TargetOption = None) -> None:
+def snapshot_list(
+    dataset: DatasetOption = None,
+    limit: LimitOption = snapshots.DEFAULT_SNAPSHOT_LIMIT,
+    target: TargetOption = None,
+) -> None:
     """List ZFS snapshots, optionally filtered to one dataset."""
     conn, _ = get_connection(target)
-    console.print_json(json.dumps(snapshots.list_snapshots(conn, dataset)))
+    result = snapshots.list_snapshots(conn, dataset, limit)
+    console.print_json(json.dumps(result))
+    if result["truncated"]:
+        console.print(
+            f"[yellow]Showing {result['returned']} of more — truncated, "
+            f"re-run with a higher --limit.[/]"
+        )
 
 
 @snapshot_app.command("create")

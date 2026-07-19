@@ -7,6 +7,7 @@ import typer
 from truenas_aiops.cli._common import cli_errors
 from truenas_aiops.cli.alert import alert_app
 from truenas_aiops.cli.dataset import dataset_app
+from truenas_aiops.cli.diagnostics import diagnose_app
 from truenas_aiops.cli.disk import disk_app
 from truenas_aiops.cli.doctor import doctor_cmd
 from truenas_aiops.cli.init import init_cmd
@@ -27,6 +28,7 @@ app = typer.Typer(
 
 app.add_typer(pool_app, name="pool")
 app.add_typer(dataset_app, name="dataset")
+app.add_typer(diagnose_app, name="diagnose")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(disk_app, name="disk")
 app.add_typer(alert_app, name="alert")

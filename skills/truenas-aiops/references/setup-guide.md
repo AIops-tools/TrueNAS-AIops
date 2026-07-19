@@ -1,6 +1,6 @@
 # truenas-aiops setup & security guide
 
-> Preview / mock-only — not yet validated against a live TrueNAS SCALE appliance.
+> Mock-validated only — not yet validated against a live TrueNAS SCALE appliance.
 
 ## 1. Install
 

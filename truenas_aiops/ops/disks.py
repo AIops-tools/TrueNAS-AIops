@@ -9,18 +9,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from truenas_aiops.ops._util import as_list, s
+from truenas_aiops.governance import opt_str
+from truenas_aiops.ops._util import as_list
 
 
 def _disk_summary(disk: dict) -> dict:
     """Reduce a disk record to a high-signal summary."""
     return {
-        "name": s(disk.get("name"), 64),
-        "serial": s(disk.get("serial"), 64),
-        "model": s(disk.get("model"), 128),
+        "name": opt_str(disk.get("name"), 64),
+        "serial": opt_str(disk.get("serial"), 64),
+        "model": opt_str(disk.get("model"), 128),
         "size": disk.get("size"),
-        "type": s(disk.get("type"), 16),
-        "pool": s(disk.get("pool"), 128),
+        "type": opt_str(disk.get("type"), 16),
+        "pool": opt_str(disk.get("pool"), 128),
     }
 
 
@@ -39,9 +40,9 @@ def smart_test_results(conn: Any) -> list[dict]:
             latest = {}
         rows.append(
             {
-                "disk": s(r.get("disk"), 64),
-                "latestStatus": s(latest.get("status"), 32),
-                "description": s(latest.get("description"), 128),
+                "disk": opt_str(r.get("disk"), 64),
+                "latestStatus": opt_str(latest.get("status"), 32),
+                "description": opt_str(latest.get("description"), 128),
                 "remaining": latest.get("remaining"),
             }
         )

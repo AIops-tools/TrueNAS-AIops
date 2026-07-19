@@ -34,6 +34,8 @@ EXPECTED_TOOLS = {
     "replication_list", "cloudsync_list",
     # overview
     "overview",
+    # diagnostics / RCA
+    "pool_health_rca", "alert_and_capacity_rca",
 }
 
 WRITE_TOOLS = {
@@ -59,6 +61,7 @@ def test_all_modules_import():
         "truenas_aiops.ops.services",
         "truenas_aiops.ops.replication",
         "truenas_aiops.ops.overview",
+        "truenas_aiops.ops.diagnostics",
         "truenas_aiops.cli",
         "truenas_aiops.cli._root",
         "truenas_aiops.cli._common",
@@ -66,6 +69,7 @@ def test_all_modules_import():
         "truenas_aiops.cli.secret",
         "truenas_aiops.cli.pool",
         "truenas_aiops.cli.dataset",
+        "truenas_aiops.cli.diagnostics",
         "truenas_aiops.cli.snapshot",
         "truenas_aiops.cli.disk",
         "truenas_aiops.cli.alert",
@@ -79,6 +83,7 @@ def test_all_modules_import():
         "mcp_server.tools.system",
         "mcp_server.tools.pools",
         "mcp_server.tools.datasets",
+        "mcp_server.tools.diagnostics",
         "mcp_server.tools.snapshots",
         "mcp_server.tools.disks",
         "mcp_server.tools.alerts",
@@ -111,7 +116,7 @@ def test_cli_app_builds_and_help_works():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     for sub in (
-        "pool", "dataset", "snapshot", "disk", "alert", "service",
+        "pool", "dataset", "diagnose", "snapshot", "disk", "alert", "service",
         "replication", "secret", "init", "overview", "system", "doctor", "mcp",
     ):
         assert sub in result.output
@@ -124,9 +129,10 @@ def test_cli_leaf_help_triggers_lazy_imports():
 
     runner = CliRunner()
     for cmd in (
-        ["pool", "--help"], ["dataset", "--help"], ["snapshot", "--help"],
-        ["disk", "--help"], ["alert", "--help"], ["service", "--help"],
-        ["replication", "--help"], ["secret", "--help"], ["doctor", "--help"],
+        ["pool", "--help"], ["dataset", "--help"], ["diagnose", "--help"],
+        ["snapshot", "--help"], ["disk", "--help"], ["alert", "--help"],
+        ["service", "--help"], ["replication", "--help"], ["secret", "--help"],
+        ["doctor", "--help"],
     ):
         result = runner.invoke(app, cmd)
         assert result.exit_code == 0, f"{cmd} failed: {result.output}"
@@ -136,6 +142,7 @@ def test_cli_leaf_help_triggers_lazy_imports():
         ["pool", "capacity", "--help"], ["pool", "scrub-start", "--help"],
         ["dataset", "list", "--help"], ["dataset", "get", "--help"],
         ["dataset", "create", "--help"],
+        ["diagnose", "pool-health", "--help"], ["diagnose", "alerts", "--help"],
         ["snapshot", "list", "--help"], ["snapshot", "create", "--help"],
         ["snapshot", "delete", "--help"],
         ["disk", "list", "--help"], ["disk", "smart", "--help"],
@@ -156,6 +163,16 @@ def test_mcp_list_tools_exposes_expected_tools():
     tools = asyncio.run(mcp.list_tools())
     names = {t.name for t in tools}
     assert EXPECTED_TOOLS <= names, f"missing: {EXPECTED_TOOLS - names}"
+
+
+@pytest.mark.unit
+def test_registered_tool_count_is_pinned():
+    """Drift guard: the advertised count includes generic governance tools."""
+    from mcp_server import _shared
+
+    assert len(_shared.mcp._tool_manager._tools) == 25, (
+        "tool count changed — update README/SKILL/server.json too"
+    )
 
 
 @pytest.mark.unit

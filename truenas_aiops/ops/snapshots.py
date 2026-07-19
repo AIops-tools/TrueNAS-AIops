@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from truenas_aiops.connection import _seg
+from truenas_aiops.governance import opt_str
 from truenas_aiops.ops._util import as_list, s
 
 
@@ -25,20 +26,47 @@ def _snapshot_summary(snap: dict) -> dict:
     props = snap.get("properties") or {}
     used = props.get("used", {}) if isinstance(props, dict) else {}
     return {
-        "id": s(snap.get("id"), 256),
-        "name": s(snap.get("name"), 256),
-        "dataset": s(snap.get("dataset"), 256),
-        "snapshotName": s(snap.get("snapshot_name"), 128),
+        "id": opt_str(snap.get("id"), 256),
+        "name": opt_str(snap.get("name"), 256),
+        "dataset": opt_str(snap.get("dataset"), 256),
+        "snapshotName": opt_str(snap.get("snapshot_name"), 128),
         "used": used.get("value") if isinstance(used, dict) else None,
     }
 
 
-def list_snapshots(conn: Any, dataset: str | None = None) -> list[dict]:
-    """[READ] List ZFS snapshots, optionally filtered to a single dataset."""
+#: Default cap on rows returned by :func:`list_snapshots`.
+DEFAULT_SNAPSHOT_LIMIT = 200
+
+
+def list_snapshots(
+    conn: Any, dataset: str | None = None, limit: int = DEFAULT_SNAPSHOT_LIMIT
+) -> dict:
+    """[READ] List ZFS snapshots, optionally filtered to a single dataset.
+
+    Returns an envelope rather than a bare list::
+
+        {"snapshots": [...], "returned": 200, "limit": 200, "truncated": true}
+
+    so a truncated read announces itself. A bare list cannot say "there is more"
+    — the consumer has to infer it from the length happening to equal the limit,
+    and a smaller local model faced with a long result tends to report that
+    nothing came back at all. This matters more on TrueNAS than almost anywhere:
+    a periodic snapshot task retaining hourly/daily/weekly snapshots across a
+    handful of datasets produces thousands of rows.
+
+    ``truncated`` is *measured*: the middleware returns the whole snapshot list
+    in one call, so the full post-filter count is known before slicing.
+    """
+    requested = max(1, int(limit))
     rows = [_snapshot_summary(x) for x in as_list(conn.get("/zfs/snapshot"))]
     if dataset:
         rows = [r for r in rows if r.get("dataset") == dataset]
-    return rows
+    return {
+        "snapshots": rows[:requested],
+        "returned": len(rows[:requested]),
+        "limit": requested,
+        "truncated": len(rows) > requested,
+    }
 
 
 def _find_snapshot(conn: Any, snapshot_id: str) -> dict:

@@ -10,18 +10,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from truenas_aiops.ops._util import as_list, s
+from truenas_aiops.governance import opt_str
+from truenas_aiops.ops._util import as_list
 
 
 def _alert_summary(alert: dict) -> dict:
     """Reduce an alert record to a high-signal summary."""
     return {
-        "id": s(alert.get("id"), 128),
-        "level": s(alert.get("level"), 32),
-        "formatted": s(alert.get("formatted"), 256),
-        "klass": s(alert.get("klass"), 64),
+        "id": opt_str(alert.get("id"), 128),
+        "level": opt_str(alert.get("level"), 32),
+        "formatted": opt_str(alert.get("formatted"), 256),
+        "klass": opt_str(alert.get("klass"), 64),
         "dismissed": alert.get("dismissed"),
-        "datetime": s((alert.get("datetime") or {}).get("$date")
+        "datetime": opt_str((alert.get("datetime") or {}).get("$date")
                       if isinstance(alert.get("datetime"), dict) else alert.get("datetime"), 64),
     }
 

@@ -1,41 +1,56 @@
-# TrueNAS AIops v0.1.0 — preview
+# Release notes — truenas-aiops 0.4.0
 
-Governed **TrueNAS SCALE** storage operations for AI agents, with a built-in
-governance harness (audit, policy, token/runaway budget, undo-token recording,
-graduated risk tiers) and an encrypted credential store. Standalone — no
-external skill-family dependency.
+Previous release: 0.3.0.
 
-> **Preview / mock-only.** All behaviour is validated against mocked REST
-> responses; it has not been run against a live TrueNAS SCALE appliance. The
-> fastest live check is `truenas-aiops doctor`.
-
-## Highlights
-
-- **21 MCP tools** (16 read, 5 write), every one wrapped with `@governed_tool`.
-  - Read: health `overview`, `system_info`; ZFS pools (`pool_list/get/status`,
-    `scrub_status`, `pool_capacity`); datasets (`dataset_list/get`); snapshots
-    (`snapshot_list`); disks (`disk_list`, `smart_test_results`); `alert_list`;
-    `service_list`; `replication_list`, `cloudsync_list`.
-  - Write: `pool_scrub_start` (medium), `dataset_create` (medium),
-    `snapshot_create` (medium, records inverse undo), `snapshot_delete` (high,
-    irreversible, captures BEFORE state), `service_restart` (medium).
-- **Encrypted API key store** (`~/.truenas-aiops/secrets.enc`, Fernet + scrypt)
-  — never plaintext on disk; legacy `TRUENAS_<TARGET>_APIKEY` env fallback.
-- **CLI** with an `init` onboarding wizard, `secret` management, and `doctor`.
-- **Bearer-auth REST connection layer** over the TrueNAS SCALE REST API v2.0
-  with teaching error translation (`TrueNASApiError`).
-
-## Install
+## Headline: read-only mode
 
 ```bash
-uv tool install truenas-aiops
-truenas-aiops init
-truenas-aiops doctor
+export TRUENAS_READ_ONLY=1
 ```
 
-## Caveats
+With this set the **6 write tools are never registered** — an MCP
+client lists **19 tools instead of 25**. The writes are not hidden
+behind a flag and not merely refused on call: they are absent from the session,
+so a model cannot invoke one and cannot be argued into one. For a reviewer this
+is checkable rather than promised — connect, list the tools, and the writes are
+not there.
 
-- Endpoint paths are modelled against the documented TrueNAS SCALE REST v2.0 API
-  and need live verification.
-- Out of scope by design: pool/dataset deletion, share/user/app management, and
-  any bulk-data-destroying operation beyond `snapshot_delete`.
+Enforcement is two layers deep: the `@governed_tool` harness refuses every
+non-read operation (covering the CLI and in-process callers too), and the MCP
+server removes write tools from `list_tools()`. Changing entry point does not
+get around it.
+
+## BREAKING — return shapes changed
+
+This release changes payloads that callers may be parsing. Both changes exist
+to stop a result from misrepresenting itself:
+
+1. **Absent fields are now `null`, not `""`.** A missing value and an empty value
+   were previously indistinguishable, which invited consumers to invent the
+   difference. Keys are still always present — only the value may be null.
+2. **Anything with a `limit` now returns an envelope** —
+   `{"<items>": [...], "returned": N, "limit": L, "truncated": bool}`. Truncation is
+   *measured* (one extra row is fetched), never inferred from the page happening to
+   be full. Where a genuine pre-cap total is knowable it is reported as `total`;
+   where it isn't, `total` is deliberately omitted rather than echoing `returned`.
+
+## New: read-only diagnostics / RCA
+
+Two new read-only analyses — `pool_health_rca` and `alert_and_capacity_rca` — plus a
+`diagnose` CLI group. Every finding cites the measured number that tripped it
+along with a cause and a concrete action, ranked worst-first with an explicit
+`rank` field, so priority is stated in the payload rather than implied by list
+order. Transparent heuristics, not a black-box verdict.
+
+## Also in this release
+
+- **`docs/VERIFICATION.md`** — what the mock suite actually guarantees, a live
+  verification checklist, and the criteria for claiming this tool verified.
+- **`skills/truenas-aiops/references/agent-guardrails.md`** — for driving this tool with a
+  smaller / local model: which guardrails are now enforced for you, and a
+  ready-made system prompt for the rest.
+- Expanded operator playbooks in the skill documentation.
+- The advertised tool count now matches what an MCP client actually lists
+  (it includes `undo_list` / `undo_apply`), and a release gate keeps it honest.
+- The `(preview)` label has been dropped. It never meant unreleased; verification
+  status now lives in `docs/VERIFICATION.md` where it can be specific.

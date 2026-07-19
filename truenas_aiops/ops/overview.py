@@ -50,7 +50,9 @@ def _service_health(conn: Any) -> dict:
         rows = service_ops.list_services(conn)
     except Exception as exc:  # noqa: BLE001 — report as partial
         return {"error": str(exc)[:200]}
-    running = [r.get("service") for r in rows if str(r.get("state", "")).upper() == "RUNNING"]
+    # ``state`` is now optional (None when the middleware omitted it), so
+    # coalesce before upper-casing rather than stringifying a None into "NONE".
+    running = [r.get("service") for r in rows if (r.get("state") or "").upper() == "RUNNING"]
     return {"total": len(rows), "running": running}
 
 

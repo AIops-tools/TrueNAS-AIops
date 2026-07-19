@@ -1,28 +1,87 @@
 <!-- mcp-name: io.github.AIops-tools/truenas-aiops -->
 
-# TrueNAS AIops (preview)
+# TrueNAS AIops
 
 > **Disclaimer**: Community-maintained open-source project. **Not affiliated with, endorsed by, or sponsored by iXsystems or the TrueNAS project.** "TrueNAS" is a trademark of its owner. MIT licensed.
 
 AI-powered **TrueNAS SCALE** storage operations with a **built-in governance
 harness** — unified audit log, policy engine, token/runaway budget guard,
 undo-token recording, and graduated-autonomy risk tiers. Self-contained: no
-external dependencies beyond `httpx` and the MCP SDK. **Preview — mock-validated
+external dependencies beyond `httpx` and the MCP SDK. **Mock-validated
 only, not yet verified against a live TrueNAS appliance.**
+
+> **Verification status**: mock-validated only; REST endpoint paths are modelled from the
+> documented API and not yet confirmed against a live appliance. See
+> [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## What works
 
-- **CLI** (`truenas-aiops ...`): `init`, `overview`, `system`, `pool list/get/status/scrub-status/capacity/scrub-start`, `dataset list/get/create`, `snapshot list/create/delete`, `disk list/smart`, `alert list`, `service list/restart`, `replication list/cloudsync`, `secret set/list/rm/migrate/rotate-password`, `doctor`, `mcp`.
-- **MCP server** (`truenas-aiops mcp` or `truenas-aiops-mcp`): **21 tools** (16 read, 5 write), every one wrapped with the bundled `@governed_tool` harness.
+- **CLI** (`truenas-aiops ...`): `init`, `overview`, `system`, `pool list/get/status/scrub-status/capacity/scrub-start`, `dataset list/get/create`, `diagnose pool-health/alerts`, `snapshot list/create/delete`, `disk list/smart`, `alert list`, `service list/restart`, `replication list/cloudsync`, `secret set/list/rm/migrate/rotate-password`, `doctor`, `mcp`.
+- **MCP server** (`truenas-aiops mcp` or `truenas-aiops-mcp`): **25 tools** (19 read, 6 write), every one wrapped with the bundled `@governed_tool` harness.
 - **Encrypted credentials**: the TrueNAS API key lives in an encrypted store `~/.truenas-aiops/secrets.enc` (Fernet + scrypt) — **never plaintext on disk**. Unlock with a master password from `TRUENAS_AIOPS_MASTER_PASSWORD` (MCP/CI) or an interactive prompt (CLI).
 - **Reversibility**: `snapshot_create` records an inverse `snapshot_delete` undo descriptor. The irreversible `snapshot_delete` (`high` risk) captures the snapshot's BEFORE state for the audit record and declares no undo.
 - **Safety**: destructive CLI ops (`snapshot delete`, `service restart`) require double confirmation and support `--dry-run`.
 
-## Capability matrix (21 MCP tools)
+## Security: read-only mode
+
+This tool is meant to be handed to an AI agent, so its safety story is enforced
+by the server rather than requested in a prompt:
+
+```bash
+export TRUENAS_READ_ONLY=1
+```
+
+With that set, the **6 write tools are never registered**. An MCP client
+lists **19 tools instead of 25** — the writes are not hidden, not
+gated behind a flag, and not merely refused when called. They are absent from
+the session. A model cannot invoke a tool it was never offered, and cannot be
+argued into one.
+
+That distinction is the whole point. A tool that exists but refuses still invites
+retry loops and "I'll describe the call instead" behaviour from smaller models,
+and it leaves a reviewer trusting a promise. An absent tool is a fact you can
+check: connect, list the tools, and see that the writes are not there.
+
+Enforcement is two layers deep, so the switch cannot be sidestepped by changing
+entry point:
+
+| Layer | What it does | Covers |
+|---|---|---|
+| `@governed_tool` harness | refuses every non-read operation outright | MCP, CLI, and in-process callers |
+| MCP registration | write tools are removed from `list_tools()` | anything speaking MCP |
+
+Read operations are unaffected, and every call is still audited to
+`~/.truenas-aiops/audit.db`.
+
+> The read/write split is derived from each tool's declared `risk_level`, and a
+> test asserts that this never disagrees with the `[READ]`/`[WRITE]` tag in the
+> tool's own documentation — so a write can't quietly present itself as a read.
+
+Running a smaller / local model? See
+[agent-guardrails.md](skills/truenas-aiops/references/agent-guardrails.md) — it lists
+the guardrails this tool now enforces for you (so you don't spend prompt budget
+restating them) and gives a ready-made system prompt for what's left.
+
+## Playbook: triage a degraded pool
+
+```bash
+truenas-aiops diagnose pool-health            # worst-first: bad state, error counters, capacity
+# → e.g. CRITICAL tank "pool status is DEGRADED", and "read=4 checksum=2" on a vdev
+truenas-aiops pool status tank                # inspect the topology / scan detail it cited
+truenas-aiops pool scrub-start tank           # kick an integrity scrub (governed, medium risk)
+truenas-aiops diagnose alerts                 # cross-check active alerts + any datasets near full
+```
+
+Each finding cites the measured number that tripped it (status string, error
+counts, used-percent) so you see **why** it was flagged, then points at the exact
+read/write command to act on it.
+
+## Capability matrix (25 MCP tools)
 
 | Category | Tools | Count | R/W |
 |----------|-------|:-----:|:---:|
 | **Overview / System** | `overview`, `system_info` | 2 | read |
+| **Diagnostics / RCA** | `pool_health_rca`, `alert_and_capacity_rca` | 2 | read |
 | **Pools** | `pool_list`, `pool_get`, `pool_status`, `scrub_status`, `pool_capacity` | 5 | read |
 | | `pool_scrub_start` | 1 | write (medium) |
 | **Datasets** | `dataset_list`, `dataset_get` | 2 | read |
@@ -34,6 +93,8 @@ only, not yet verified against a live TrueNAS appliance.**
 | **Services** | `service_list` | 1 | read |
 | | `service_restart` | 1 | write (medium) |
 | **Replication** | `replication_list`, `cloudsync_list` | 2 | read |
+| **Undo (governance)** | `undo_list` | 1 | read |
+| | `undo_apply` | 1 | write (medium) |
 
 ## Quick start
 
@@ -81,15 +142,16 @@ as a fallback with a deprecation warning (migrate with `truenas-aiops secret mig
 
 Read: system info, ZFS pools (list/get/status/scrub-status/capacity), datasets
 (list/get), snapshots (list), disks + S.M.A.R.T. results, alerts, services,
-replication & cloud-sync tasks, one-shot health overview. Mutating (governed,
+replication & cloud-sync tasks, one-shot health overview, and read-only
+diagnostics / RCA (`pool_health_rca`, `alert_and_capacity_rca`). Mutating (governed,
 dry-run + double-confirm where destructive): `pool_scrub_start`,
 `dataset_create`, `snapshot_create`, `snapshot_delete`, `service_restart`.
 
-**缺功能？(Missing something?)** This is a focused preview. Open an issue or PR at
+**缺功能？(Missing something?)** Coverage is intentionally focused. Open an issue or PR at
 [github.com/AIops-tools/TrueNAS-AIops](https://github.com/AIops-tools/TrueNAS-AIops/issues)
 — feature requests, contributions, and comments are all welcome.
 
-## Preview caveats
+## Caveats
 
 - **Mock-only**: all behaviour is validated against mocked REST responses; not
   yet run against a live TrueNAS SCALE appliance. `truenas-aiops doctor` is the
