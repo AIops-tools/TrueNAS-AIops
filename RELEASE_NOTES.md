@@ -1,56 +1,59 @@
-# Release notes — truenas-aiops 0.4.0
+# Release notes — truenas-aiops 0.5.0
 
-Previous release: 0.3.0.
+Previous release: 0.4.0.
 
-## Headline: read-only mode
+## In this tool
 
-```bash
-export TRUENAS_READ_ONLY=1
-```
+- **TrueNAS 26 removes the REST API this tool speaks.** REST was deprecated in 25.04 and is gone in 26 (in beta now), replaced by JSON-RPC over WebSocket. `doctor` now reads the server version and warns on 25.10.1+ (which raises a deprecation alert on every call) and errors on 26+; the connection layer explains the removal instead of returning a pile of 404s. **The transport migration is not in this release** — it is a second backend, not a path change, and it is tracked separately.
+- **`restart_service` validates the service name.** It previously forwarded any string, and the code that looks like a guard was only capturing prior state. `ssh` — the operator's out-of-band recovery path — now needs an explicit `confirm`. A `/service` read that fails proceeds rather than blocking.
+- **New `scheme:`** (default `https`) — the base URL was hardcoded.
 
-With this set the **6 write tools are never registered** — an MCP
-client lists **19 tools instead of 25**. The writes are not hidden
-behind a flag and not merely refused on call: they are absent from the session,
-so a model cannot invoke one and cannot be argued into one. For a reviewer this
-is checkable rather than promised — connect, list the tools, and the writes are
-not there.
+## Every tool in the line: previews and undetermined outcomes
 
-Enforcement is two layers deep: the `@governed_tool` harness refuses every
-non-read operation (covering the CLI and in-process callers too), and the MCP
-server removes write tools from `list_tools()`. Changing entry point does not
-get around it.
+This release fixes three harness defects that were silently degrading the audit
+trail and the undo store.
 
-## BREAKING — return shapes changed
+**A write that loses its response is no longer recorded as a failure.** The
+harness assumed a sanitized error meant nothing had happened. That assumption is
+false in exactly the case that matters most: when a write severs its own
+connection, the request has already landed, the response cannot come back, and
+the operation was recorded as `status=error` with **no undo token created at
+all**. Transport-level failures are now audited as `status=unknown`, the result
+says plainly that the operation may have taken effect and should be verified
+before retrying, and a write that stashed its before-state has its inverse
+recorded anyway — flagged `effectVerified: false`, which `undo_list` and
+`undo_apply` both surface. Existing `undo.db` files are migrated in place; their
+rows read as verified, which is accurate, since the old code only ever recorded
+on the confirmed path.
 
-This release changes payloads that callers may be parsing. Both changes exist
-to stop a result from misrepresenting itself:
+**A dry-run no longer writes an undo token.** Previews were recording inverses
+built from a before-state they never had: the undo callback's permissive default
+filled the gap with a guess, producing a real, applicable token for an operation
+that never happened.
 
-1. **Absent fields are now `null`, not `""`.** A missing value and an empty value
-   were previously indistinguishable, which invited consumers to invent the
-   difference. Keys are still always present — only the value may be null.
-2. **Anything with a `limit` now returns an envelope** —
-   `{"<items>": [...], "returned": N, "limit": L, "truncated": bool}`. Truncation is
-   *measured* (one extra row is fetched), never inferred from the page happening to
-   be full. Where a genuine pre-cap total is knowable it is reported as `total`;
-   where it isn't, `total` is deliberately omitted rather than echoing `returned`.
+**A dry-run no longer demands a named approver.** Requiring an approval in order
+to ask whether something needs approval inverts what a preview is for. The tier
+is still computed and still audited, so the preview can tell you an approver
+will be needed; it just no longer refuses to answer. The write itself is gated
+exactly as before.
 
-## New: read-only diagnostics / RCA
+The invariant, now stated: **a dry_run may read; it must never write.** Guards
+run on the preview path, which means a preview can and does report that an
+operation would be refused.
 
-Two new read-only analyses — `pool_health_rca` and `alert_and_capacity_rca` — plus a
-`diagnose` CLI group. Every finding cites the measured number that tripped it
-along with a cause and a concrete action, ranked worst-first with an explicit
-`rank` field, so priority is stated in the payload rather than implied by list
-order. Transparent heuristics, not a black-box verdict.
+## Also line-wide
 
-## Also in this release
+- **Truncated text now ends in an ellipsis** instead of being cut silently. This
+  line already treats a silent cut as a defect for lists; it was doing exactly
+  that to strings.
+- **Error messages are capped at 800 characters, not 300.** These messages end
+  with what to do instead, so the cap was removing the most useful sentence of
+  every long refusal.
 
-- **`docs/VERIFICATION.md`** — what the mock suite actually guarantees, a live
-  verification checklist, and the criteria for claiming this tool verified.
-- **`skills/truenas-aiops/references/agent-guardrails.md`** — for driving this tool with a
-  smaller / local model: which guardrails are now enforced for you, and a
-  ready-made system prompt for the rest.
-- Expanded operator playbooks in the skill documentation.
-- The advertised tool count now matches what an MCP client actually lists
-  (it includes `undo_list` / `undo_apply`), and a release gate keeps it honest.
-- The `(preview)` label has been dropped. It never meant unreleased; verification
-  status now lives in `docs/VERIFICATION.md` where it can be specific.
+## Verification status
+
+The version detection is built from TrueNAS's published deprecation notes
+(deprecated 25.04, removed in 26) and is **not verified against a 26 appliance**
+— 26 is in beta and not available here. The thresholds and the messages are
+doc-modelled; the REST paths themselves remain as previously documented in
+`docs/VERIFICATION.md`.

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.0 — 2026-07-20
+
+### Fixed
+- **TrueNAS 26 removes the REST API this tool speaks.** REST was deprecated in 25.04 and is gone in 26 (in beta now), replaced by JSON-RPC over WebSocket.
+- **`restart_service` validates the service name.** It previously forwarded any string, and the code that looks like a guard was only capturing prior state.
+- **New `scheme:`** (default `https`) — the base URL was hardcoded..
+- Harness: a write whose response is lost is audited `status=unknown`, not `error` — it may have taken effect. Undo tokens gain `effectVerified` (undo.db migrated in place).
+- Harness: a dry-run no longer records an undo token, and no longer requires a named approver. Guards now run on the preview path.
+- Truncated strings end in an ellipsis instead of being cut silently; error messages are capped at 800 chars, not 300.
+
+See RELEASE_NOTES.md for the full detail.
+
 ## v0.3.0 — 2026-07-17
 
 ### Added

@@ -45,27 +45,44 @@ def snapshot_list(
     },
 )
 @tool_errors("dict")
-def snapshot_create(dataset: str, name: str, target: Optional[str] = None) -> dict:
+def snapshot_create(
+    dataset: str,
+    name: str,
+    dry_run: bool = False,
+    target: Optional[str] = None,
+) -> dict:
     """[WRITE] Create a ZFS snapshot 'dataset@name'. Inverse: snapshot_delete.
+    Pass dry_run=True to preview.
 
     Args:
         dataset: Dataset path to snapshot (e.g. 'tank/data').
         name: Snapshot name (e.g. 'manual-2026-06-28').
+        dry_run: If True, preview without creating (and without an undo token).
         target: TrueNAS target name from config.
     """
+    if dry_run:
+        return {"dryRun": True, "wouldCreateSnapshot": {"id": f"{dataset}@{name}"}}
     return ops.create_snapshot(_get_connection(target), dataset, name)
 
 
 @mcp.tool()
 @governed_tool(risk_level="high")
 @tool_errors("dict")
-def snapshot_delete(snapshot_id: str, target: Optional[str] = None) -> dict:
+def snapshot_delete(
+    snapshot_id: str,
+    dry_run: bool = False,
+    target: Optional[str] = None,
+) -> dict:
     """[WRITE] Delete a ZFS snapshot by id ('dataset@name'). IRREVERSIBLE.
+    Pass dry_run=True to preview.
 
     Captures the snapshot's prior state for the audit record; declares no undo.
 
     Args:
         snapshot_id: Full snapshot id 'dataset@name' (see snapshot_list).
+        dry_run: If True, preview without deleting.
         target: TrueNAS target name from config.
     """
+    if dry_run:
+        return {"dryRun": True, "wouldDeleteSnapshot": {"snapshotId": snapshot_id}}
     return ops.delete_snapshot(_get_connection(target), snapshot_id)

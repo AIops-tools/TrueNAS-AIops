@@ -6,16 +6,37 @@ from rich.console import Console
 
 from truenas_aiops.config import CONFIG_FILE, ENV_FILE, load_config
 from truenas_aiops.secretstore import SECRETS_FILE, check_permissions, has_store
+from truenas_aiops.version_support import DEPRECATED, REMOVED, UNKNOWN, check_rest_support
 
 _console = Console()
 
 
+def _report_rest_support(raw_version: object) -> int:
+    """Print the REST-transport verdict for one target; return problems to add.
+
+    ``removed`` is a hard failure (this tool cannot talk to the server at all).
+    ``deprecated`` and ``unknown`` are warnings: the tool works today, but the
+    operator needs to know it is on a clock — or that we could not tell.
+    """
+    support = check_rest_support(raw_version if isinstance(raw_version, str) else None)
+    if support.status == REMOVED:
+        _console.print(f"[red]✗ {support.message}[/]")
+        return 1
+    if support.status in (DEPRECATED, UNKNOWN):
+        _console.print(f"[yellow]! {support.message}[/]")
+        return 0
+    _console.print(f"[green]✓ {support.message}[/]")
+    return 0
+
+
 def run_doctor(skip_auth: bool = False) -> int:
-    """Check config, secrets, and (optionally) connectivity.
+    """Check config, secrets, and (optionally) connectivity + REST support.
 
     Returns a process exit code: 0 healthy, 1 problems found. Connectivity
     failures are reported as status, never raised as tracebacks (a doctor must
-    survive the thing it diagnoses being unhealthy).
+    survive the thing it diagnoses being unhealthy). The connectivity step also
+    reads the server version and reports whether this server still serves the
+    REST API this tool is built on — see :mod:`truenas_aiops.version_support`.
     """
     problems = 0
 
@@ -72,11 +93,12 @@ def run_doctor(skip_auth: bool = False) -> int:
         try:
             conn = mgr.connect(target.name)
             info = conn.get("/system/info")
-            version = info.get("version", "?") if isinstance(info, dict) else "?"
+            raw_version = info.get("version") if isinstance(info, dict) else None
             _console.print(
                 f"[green]✓ Connected to '{target.name}' ({target.host}) "
-                f"— TrueNAS {version}[/]"
+                f"— TrueNAS {raw_version or '?'}[/]"
             )
+            problems += _report_rest_support(raw_version)
         except Exception as exc:  # noqa: BLE001 — connectivity is a status, not a crash
             _console.print(f"[red]✗ Connect to '{target.name}' failed: {exc}[/]")
             problems += 1

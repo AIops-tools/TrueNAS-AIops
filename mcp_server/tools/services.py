@@ -22,14 +22,34 @@ def service_list(target: Optional[str] = None) -> list:
 @mcp.tool()
 @governed_tool(risk_level="medium")
 @tool_errors("dict")
-def service_restart(service: str, target: Optional[str] = None) -> dict:
-    """[WRITE] Restart a system service (e.g. 'smb', 'nfs', 'ssh').
+def service_restart(
+    service: str,
+    confirm: bool = False,
+    dry_run: bool = False,
+    target: Optional[str] = None,
+) -> dict:
+    """[WRITE] Restart a system service (e.g. 'smb', 'nfs'). Pass dry_run=True
+    to preview.
 
     Captures the prior service state for the audit record; declares no undo
     (a restart is not cleanly reversible).
 
+    Refuses a service name that is not present in service_list, and refuses
+    'ssh' unless confirm=True — SSH is the out-of-band recovery path, and
+    bouncing it can strand whoever is working over it. Both refusals apply
+    under dry_run too, which must report a refusal rather than preview a call
+    that will be refused.
+
     Args:
         service: TrueNAS service name (see service_list).
+        confirm: Required (True) only to restart 'ssh'; ignored otherwise.
+        dry_run: If True, preview without restarting.
         target: TrueNAS target name from config.
     """
-    return ops.restart_service(_get_connection(target), service)
+    conn = _get_connection(target)
+    # Ahead of the dry_run return: a preview whose real call would be refused
+    # must say so, or the caller reads the refusal as transient and retries.
+    ops.guard_restart_service(conn, service, confirm=confirm)
+    if dry_run:
+        return {"dryRun": True, "wouldRestart": {"service": service}}
+    return ops.restart_service(conn, service, confirm=confirm)

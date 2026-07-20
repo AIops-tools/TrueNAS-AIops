@@ -13,6 +13,7 @@ from truenas_aiops.connection import (
     ConnectionManager,
     TrueNASApiError,
     TrueNASConnection,
+    UnsupportedServerVersion,
     _close_all_managers,
     _seg,
 )
@@ -79,6 +80,54 @@ def test_teaching_message_per_status(status, needle):
     assert needle in str(ei.value).lower()
     assert ei.value.status_code == status
     assert ei.value.path == "/anything"
+
+
+# --------------------------------------------------------------------------- #
+# TrueNAS 26 removed REST: a 404 on an always-present endpoint must explain
+# itself instead of reading like a stale id.
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "path",
+    ["/system/info", "/pool", "/pool/dataset", "/zfs/snapshot", "/alert/list", "/pool/"],
+)
+def test_404_on_always_present_endpoint_explains_rest_removal(path):
+    conn = _conn(resp=_Resp(404, content=b"x", text="Not Found"))
+    with pytest.raises(UnsupportedServerVersion) as ei:
+        conn.get(path)
+    msg = str(ei.value)
+    assert "REMOVED the REST API" in msg
+    assert "/api/current" in msg  # names the replacement transport
+    assert "api_path" in msg  # ...and the benign alternative explanation
+    assert ei.value.status_code == 404
+    assert ei.value.path == path
+
+
+@pytest.mark.unit
+def test_rest_removed_error_is_caught_by_existing_handlers():
+    """Subclassing TrueNASApiError keeps every existing except-clause working."""
+    assert issubclass(UnsupportedServerVersion, TrueNASApiError)
+    conn = _conn(resp=_Resp(404, content=b"x", text="Not Found"))
+    with pytest.raises(TrueNASApiError):
+        conn.get("/system/info")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", ["/pool/id/tank", "/zfs/snapshot/id/tank%2Fdata%40s1", "/x"])
+def test_404_on_an_id_path_keeps_the_stale_id_message(path):
+    """Only id-free root endpoints imply REST is gone; a real 404 stays a real 404."""
+    conn = _conn(resp=_Resp(404, content=b"x", text="Not Found"))
+    with pytest.raises(TrueNASApiError) as ei:
+        conn.get(path)
+    assert not isinstance(ei.value, UnsupportedServerVersion)
+    assert "the id may be stale" in str(ei.value).lower()
+
+
+@pytest.mark.unit
+def test_query_string_does_not_hide_the_rest_removal_verdict():
+    conn = _conn(resp=_Resp(404, content=b"x", text="Not Found"))
+    with pytest.raises(UnsupportedServerVersion):
+        conn.get("/pool?limit=50")
 
 
 @pytest.mark.unit

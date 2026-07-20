@@ -159,6 +159,89 @@ def test_connect_failure_reported_per_target(isolated_home, ok_connection, capsy
     assert "Connect to 'nas-b' failed: connection refused" in out
 
 
+# --------------------------------------------------------------------------- #
+# REST retirement: doctor reports whether this server still speaks REST v2.0
+# --------------------------------------------------------------------------- #
+def _run_against_version(monkeypatch, home, raw_version: str | None) -> None:
+    """Point doctor at a target reporting ``raw_version`` from /system/info."""
+    _write_config(home, [_target()])
+    _store_secret()
+    mgr = MagicMock(name="ConnectionManager")
+    info = {} if raw_version is None else {"version": raw_version}
+    mgr.return_value.connect.return_value.get.return_value = info
+    monkeypatch.setattr("truenas_aiops.connection.ConnectionManager", mgr)
+
+
+def test_deprecated_version_warns_about_the_truenas_26_deadline(
+    isolated_home, monkeypatch, capsys
+):
+    _run_against_version(monkeypatch, isolated_home, "25.10.4")
+    assert run_doctor() == 0  # still works today — a warning, not a failure
+    out = " ".join(capsys.readouterr().out.split())
+    assert "TrueNAS 25.10.4" in out
+    assert "deprecated" in out
+    assert "deprecation alert" in out
+    assert "REMOVED in TrueNAS 26" in out
+
+
+def test_rest_removed_version_is_a_hard_error(isolated_home, monkeypatch, capsys):
+    _run_against_version(monkeypatch, isolated_home, "26.0-BETA.2")
+    assert run_doctor() == 1
+    out = " ".join(capsys.readouterr().out.split())
+    assert "has REMOVED the REST API v2.0" in out
+    assert "/api/current" in out
+    assert "cannot manage this server" in out
+
+
+def test_supported_version_is_clean(isolated_home, monkeypatch, capsys):
+    _run_against_version(monkeypatch, isolated_home, "TrueNAS-SCALE-24.04.2")
+    assert run_doctor() == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "REST API v2.0 available on TrueNAS TrueNAS-SCALE-24.04.2" in out
+    assert "✗" not in out
+
+
+@pytest.mark.parametrize("raw", [None, "", "not-a-version"])
+def test_unknown_version_warns_and_never_claims_ok(isolated_home, monkeypatch, capsys, raw):
+    _run_against_version(monkeypatch, isolated_home, raw)
+    assert run_doctor() == 0  # unknown is not a connectivity failure
+    out = " ".join(capsys.readouterr().out.split())
+    assert "REST support is UNKNOWN" in out
+    assert "REST API v2.0 available" not in out  # must not read as a clean bill
+
+
+def test_non_dict_system_info_does_not_crash_doctor(isolated_home, monkeypatch, capsys):
+    _write_config(isolated_home, [_target()])
+    _store_secret()
+    mgr = MagicMock(name="ConnectionManager")
+    mgr.return_value.connect.return_value.get.return_value = ["unexpected"]
+    monkeypatch.setattr("truenas_aiops.connection.ConnectionManager", mgr)
+    assert run_doctor() == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "TrueNAS ?" in out
+    assert "REST support is UNKNOWN" in out
+
+
+def test_rest_removed_connection_error_surfaces_through_doctor(
+    isolated_home, monkeypatch, capsys
+):
+    """A TrueNAS 26 server 404s /system/info; doctor must explain, not 404-dump."""
+    from truenas_aiops.connection import UnsupportedServerVersion
+
+    _write_config(isolated_home, [_target()])
+    _store_secret()
+    mgr = MagicMock(name="ConnectionManager")
+    mgr.return_value.connect.return_value.get.side_effect = UnsupportedServerVersion(
+        "The REST API at https://nas:443/api/v2.0 returned 404 for /system/info",
+        status_code=404,
+        path="/system/info",
+    )
+    monkeypatch.setattr("truenas_aiops.connection.ConnectionManager", mgr)
+    assert run_doctor() == 1
+    out = " ".join(capsys.readouterr().out.split())
+    assert "returned 404 for /system/info" in out
+
+
 def test_permission_warning_surfaced(isolated_home, capsys):
     _write_config(isolated_home, [_target()])
     _store_secret()

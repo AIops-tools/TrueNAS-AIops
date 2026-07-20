@@ -11,7 +11,11 @@ Thin httpx wrapper with per-target session reuse and static Bearer auth:
 
 All non-2xx responses are translated centrally into ``TrueNASApiError`` with a
 teaching message — REST-wrapper skills translate HTTP errors at the connection
-layer from the first version rather than leaking raw tracebacks.
+layer from the first version rather than leaking raw tracebacks. One case gets
+its own class: a 404 on an endpoint that exists on every REST-capable TrueNAS
+means the REST base path is not being served at all (TrueNAS 26 removed REST),
+which raises :class:`UnsupportedServerVersion` rather than a misleading
+"resource not found — the id may be stale". See :mod:`truenas_aiops.version_support`.
 
 The httpx client is injectable for tests: pass ``client=`` to
 ``TrueNASConnection`` to substitute a mock that implements ``request`` / ``close``.
@@ -27,8 +31,28 @@ from urllib.parse import quote
 import httpx
 
 from truenas_aiops.config import AppConfig, TargetConfig, load_config
+from truenas_aiops.version_support import REST_REMOVED_MAJOR, WEBSOCKET_API_PATH
 
 _TIMEOUT = 30.0
+
+# Endpoints that exist on *every* REST-capable TrueNAS build — collection roots
+# and singletons, no caller-supplied id in the path. A 404 on one of these is
+# not a stale id; it means the REST base path itself is not being served, which
+# is exactly how a TrueNAS 26 appliance (REST removed) answers.
+_ALWAYS_PRESENT_PATHS = frozenset(
+    {
+        "/system/info",
+        "/pool",
+        "/pool/dataset",
+        "/zfs/snapshot",
+        "/disk",
+        "/service",
+        "/alert/list",
+        "/replication",
+        "/cloudsync",
+        "/smart/test/results",
+    }
+)
 
 
 def _seg(value: Any) -> str:
@@ -48,6 +72,37 @@ class TrueNASApiError(Exception):
         self.status_code = status_code
         self.path = path
         super().__init__(message)
+
+
+class UnsupportedServerVersion(TrueNASApiError):  # noqa: N818 — teaching error, reads as a statement
+    """This TrueNAS server cannot serve the REST API that truenas-aiops speaks.
+
+    Subclasses :class:`TrueNASApiError` so every existing ``except
+    TrueNASApiError`` handler (and the CLI's error translator) keeps working,
+    while staying distinguishable — a bare 404 here was reported as "resource
+    not found … the id may be stale", sending the operator to hunt a stale-id
+    problem that does not exist when the real cause is that TrueNAS 26 removed
+    the REST API wholesale.
+    """
+
+
+def _looks_like_rest_removed(path: str) -> bool:
+    """True when a 404 on ``path`` means the REST base path is gone, not the id."""
+    return path.split("?", 1)[0].rstrip("/") in _ALWAYS_PRESENT_PATHS
+
+
+def _rest_removed_message(base_url: str, path: str) -> str:
+    """Explain a 404 on an endpoint that exists on every REST-capable TrueNAS."""
+    return (
+        f"The REST API at {base_url} returned 404 for {path} — an endpoint that exists on "
+        f"every TrueNAS build still serving REST. The likely cause is that this server is "
+        f"TrueNAS {REST_REMOVED_MAJOR} or newer, which REMOVED the REST API in favour of "
+        f"JSON-RPC 2.0 over a WebSocket at {WEBSOCKET_API_PATH}; truenas-aiops speaks REST "
+        f"only and cannot manage such a server. Check the version in the TrueNAS UI (System "
+        f"→ Update). If it is 25.10.x or older, then REST is still there and the base path is "
+        f"wrong instead — check 'api_path' in ~/.truenas-aiops/config.yaml (expected "
+        f"/api/v2.0)."
+    )
 
 
 def _teaching_message(status: int, path: str, body: str) -> str:
@@ -108,6 +163,12 @@ class TrueNASConnection:
                 f"TrueNAS REST API is reachable.",
                 path=path,
             ) from exc
+        if resp.status_code == 404 and _looks_like_rest_removed(path):
+            raise UnsupportedServerVersion(
+                _rest_removed_message(self._target.base_url, path),
+                status_code=404,
+                path=path,
+            )
         if not (200 <= resp.status_code < 300):
             raise TrueNASApiError(
                 _teaching_message(resp.status_code, path, resp.text),

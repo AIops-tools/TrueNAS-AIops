@@ -168,16 +168,39 @@ def test_dataset_create_confirmed_calls_governed_twin(monkeypatch):
 
 @pytest.mark.unit
 def test_service_restart_dry_run_and_confirm(monkeypatch):
-    gov = MagicMock(name="gov_service_restart", return_value={})
+    """--dry-run now routes THROUGH the governed tool so its guards run.
+
+    It previously returned early with a printed banner, which meant the CLI
+    preview could show green for a restart the real call would refuse.
+    """
+    gov = MagicMock(name="gov_service_restart", return_value={"dryRun": True})
     monkeypatch.setattr("truenas_aiops.cli.service.gov.service_restart", gov)
 
     r = runner.invoke(app, ["service", "restart", "smb", "--dry-run"])
     assert r.exit_code == 0 and "DRY-RUN" in r.output
-    gov.assert_not_called()
+    gov.assert_called_once()
+    assert gov.call_args.kwargs["dry_run"] is True
 
+    gov.reset_mock()
+    gov.return_value = {}
     r = runner.invoke(app, ["service", "restart", "smb"], input="y\ny\n")
     assert r.exit_code == 0, r.output
     gov.assert_called_once()
+    assert gov.call_args.kwargs.get("dry_run") is None
+
+
+@pytest.mark.unit
+def test_service_restart_dry_run_surfaces_a_guard_refusal(monkeypatch):
+    """A refused preview must exit non-zero, not print a green banner."""
+    gov = MagicMock(
+        name="gov_service_restart",
+        return_value={"error": "Refusing to restart 'nosuchsvc': ...", "hint": "..."},
+    )
+    monkeypatch.setattr("truenas_aiops.cli.service.gov.service_restart", gov)
+    r = runner.invoke(app, ["service", "restart", "nosuchsvc", "--dry-run"])
+    assert r.exit_code == 1
+    assert "Refusing to restart" in r.output
+    assert "DRY-RUN" not in r.output
 
 
 @pytest.mark.unit

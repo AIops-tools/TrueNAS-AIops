@@ -31,11 +31,11 @@
 
 | Tool | Risk | REST (modelled) | Undo / safety |
 |------|------|----------------|---------------|
-| `pool_scrub_start` | medium | `POST /pool/scrub/run` | captures prior scan state; no undo (non-destructive) |
-| `dataset_create` | medium | `POST /pool/dataset` | no undo (deletion out of scope) |
-| `snapshot_create` | medium | `POST /zfs/snapshot` | records inverse `snapshot_delete` undo descriptor |
-| `snapshot_delete` | **high** | `DELETE /zfs/snapshot/id/{id}` | captures BEFORE state; IRREVERSIBLE, no undo; CLI double-confirm + dry-run |
-| `service_restart` | medium | `POST /service/restart` | captures prior state; no undo; CLI double-confirm + dry-run |
+| `pool_scrub_start` | medium | `POST /pool/scrub/run` | captures prior scan state; no undo (non-destructive); `dry_run` |
+| `dataset_create` | medium | `POST /pool/dataset` | no undo (deletion out of scope); `dry_run` |
+| `snapshot_create` | medium | `POST /zfs/snapshot` | records inverse `snapshot_delete` undo descriptor; `dry_run` |
+| `snapshot_delete` | **high** | `DELETE /zfs/snapshot/id/{id}` | captures BEFORE state; IRREVERSIBLE, no undo; CLI double-confirm + `dry_run` |
+| `service_restart` | medium | `POST /service/restart` | captures prior state; no undo; refuses a name absent from `service_list`, and refuses `ssh` without `confirm=True` (out-of-band recovery path); guards also fire under `dry_run`; CLI double-confirm |
 | `undo_apply` | medium | governance store | executes a recorded inverse; itself governed; single-use; supports dry-run |
 
 ## Out of scope (by design)

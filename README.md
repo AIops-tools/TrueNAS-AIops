@@ -14,6 +14,40 @@ only, not yet verified against a live TrueNAS appliance.**
 > documented API and not yet confirmed against a live appliance. See
 > [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
+## Supported TrueNAS versions — read this before upgrading
+
+This tool talks to TrueNAS over the **REST API v2.0** (`/api/v2.0`), and iXsystems
+is retiring that API on a published timeline:
+
+| TrueNAS version | REST API v2.0 | What `truenas-aiops` does |
+|---|---|---|
+| ≤ 25.10.0 | supported | works normally |
+| 25.10.1 – 25.10.x | deprecated; **every REST call raises a deprecation alert on the appliance** | works, and `doctor` warns you |
+| **26 and newer** | **removed** | **does not work at all** — `doctor` fails with an explanation |
+
+TrueNAS **26 removed REST entirely**, replacing it with JSON-RPC 2.0 over a
+persistent WebSocket at `/api/current`. `truenas-aiops` does not speak that
+transport yet, so **upgrading an appliance to TrueNAS 26 is a breaking change for
+this tool** — not a routine upgrade. There is no configuration that works around
+it; a WebSocket backend is a separate piece of work (new dependency, persistent
+connection, and a different auth flow, since 26 also deprecates
+`auth.login_with_api_key`).
+
+Two things make this visible rather than mysterious:
+
+- **`truenas-aiops doctor` reads the server version** from `/system/info` and says
+  plainly whether REST is supported, deprecated, or gone. If the version cannot be
+  read or parsed it reports **UNKNOWN** — never a clean bill of health it cannot
+  justify.
+- **The connection layer recognises the failure shape.** On a TrueNAS 26 box every
+  REST path 404s; a 404 on an endpoint that exists on every REST-capable TrueNAS
+  (e.g. `/system/info`, `/pool`) raises `UnsupportedServerVersion` with an
+  explanation, instead of a pile of "resource not found — the id may be stale"
+  errors that send you hunting a stale id that was never the problem.
+
+If you are on 25.10.x today, this tool works — plan the 26 upgrade knowing it will
+stop.
+
 ## What works
 
 - **CLI** (`truenas-aiops ...`): `init`, `overview`, `system`, `pool list/get/status/scrub-status/capacity/scrub-start`, `dataset list/get/create`, `diagnose pool-health/alerts`, `snapshot list/create/delete`, `disk list/smart`, `alert list`, `service list/restart`, `replication list/cloudsync`, `secret set/list/rm/migrate/rotate-password`, `doctor`, `mcp`.
@@ -140,6 +174,11 @@ as a fallback with a deprecation warning (migrate with `truenas-aiops secret mig
 
 ## 支持范围 / Supported scope
 
+Versions: TrueNAS builds that still serve the **REST API v2.0** — i.e. **up to and
+including 25.10.x**, with a deprecation warning from 25.10.1. **TrueNAS 26 and newer
+are not supported** (REST removed); see
+[Supported TrueNAS versions](#supported-truenas-versions--read-this-before-upgrading).
+
 Read: system info, ZFS pools (list/get/status/scrub-status/capacity), datasets
 (list/get), snapshots (list), disks + S.M.A.R.T. results, alerts, services,
 replication & cloud-sync tasks, one-shot health overview, and read-only
@@ -153,6 +192,9 @@ dry-run + double-confirm where destructive): `pool_scrub_start`,
 
 ## Caveats
 
+- **TrueNAS 26 is not supported**: REST v2.0 — the only transport this tool
+  speaks — was removed in TrueNAS 26. See
+  [Supported TrueNAS versions](#supported-truenas-versions--read-this-before-upgrading).
 - **Mock-only**: all behaviour is validated against mocked REST responses; not
   yet run against a live TrueNAS SCALE appliance. `truenas-aiops doctor` is the
   fastest live check.

@@ -13,7 +13,7 @@ from truenas_aiops.cli._common import (
     cli_errors,
     console,
     double_confirm,
-    dry_run_print,
+    dry_run_preview,
     get_connection,
 )
 from truenas_aiops.ops import services
@@ -35,13 +35,20 @@ def service_restart(
     service: str, target: TargetOption = None, dry_run: DryRunOption = False
 ) -> None:
     """Restart a system service (e.g. 'smb', 'nfs', 'ssh') — double confirm."""
+    # ``confirm=True`` on both branches: this command's confirmation gate is the
+    # interactive double_confirm below, which the real path always runs. Previewing
+    # with confirm=False would report an ssh refusal the real CLI call never hits —
+    # the preview disagreeing with the call it previews.
     if dry_run:
-        dry_run_print(
+        # Through the governed call: restart_service refuses unknown service
+        # names, so a preview must report that refusal rather than a green banner.
+        dry_run_preview(
+            gov.service_restart(service=service, confirm=True, dry_run=True, target=target),
             operation="restart_service",
             api_call="POST /service/restart",
             parameters={"service": service},
         )
         return
     double_confirm("restart", f"service {service}")
-    gov.service_restart(service=service, target=target)
+    gov.service_restart(service=service, confirm=True, target=target)
     console.print(f"[green]Restarted service '{service}'[/]")

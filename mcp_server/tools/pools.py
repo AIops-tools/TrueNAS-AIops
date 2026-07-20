@@ -78,14 +78,22 @@ def pool_capacity(target: Optional[str] = None) -> list:
 @mcp.tool()
 @governed_tool(risk_level="medium")
 @tool_errors("dict")
-def pool_scrub_start(pool_name: str, target: Optional[str] = None) -> dict:
+def pool_scrub_start(
+    pool_name: str,
+    dry_run: bool = False,
+    target: Optional[str] = None,
+) -> dict:
     """[WRITE] Start a scrub (integrity check) on a pool. Non-destructive.
+    Pass dry_run=True to preview.
 
     No undo descriptor (a scrub has no clean inverse beyond cancellation). Poll
     progress with scrub_status; do not re-issue.
 
     Args:
         pool_name: ZFS pool name (e.g. 'tank').
+        dry_run: If True, preview without starting the scrub.
         target: TrueNAS target name from config.
     """
+    if dry_run:
+        return {"dryRun": True, "wouldStartScrub": {"poolName": pool_name}}
     return ops.scrub_start(_get_connection(target), pool_name)

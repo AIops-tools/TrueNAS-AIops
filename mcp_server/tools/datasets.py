@@ -36,15 +36,22 @@ def dataset_get(dataset_id: str, target: Optional[str] = None) -> dict:
 @governed_tool(risk_level="medium")
 @tool_errors("dict")
 def dataset_create(
-    name: str, pool: Optional[str] = None, target: Optional[str] = None
+    name: str,
+    pool: Optional[str] = None,
+    dry_run: bool = False,
+    target: Optional[str] = None,
 ) -> dict:
     """[WRITE] Create a ZFS dataset. Non-destructive (creates new storage).
+    Pass dry_run=True to preview.
 
     No undo descriptor — dataset deletion is intentionally out of scope.
 
     Args:
         name: Full dataset path including the pool, e.g. 'tank/projects'.
         pool: Optional pool name for context/labelling.
+        dry_run: If True, preview without creating.
         target: TrueNAS target name from config.
     """
+    if dry_run:
+        return {"dryRun": True, "wouldCreateDataset": {"name": name, "pool": pool}}
     return ops.create_dataset(_get_connection(target), name, pool)

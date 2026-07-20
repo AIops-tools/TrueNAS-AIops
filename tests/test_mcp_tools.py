@@ -23,6 +23,7 @@ from mcp_server.tools import overview as ov_tools
 from mcp_server.tools import pools as pool_tools
 from mcp_server.tools import replication as repl_tools
 from mcp_server.tools import services as svc_tools
+from mcp_server.tools import snapshots as snap_tools
 from mcp_server.tools import system as sys_tools
 
 
@@ -172,6 +173,123 @@ def test_service_restart_audited_and_captures_prior(gov_home, monkeypatch):
     assert result["priorState"]["state"] == "RUNNING"
     conn.post.assert_called_once_with("/service/restart", json={"service": "smb"})
     assert "service_restart" in _audit_tools(gov_home / "audit.db")
+
+
+# --------------------------------------------------------------------------- #
+# service_restart guards — must hold on the MCP path AND the preview path
+# --------------------------------------------------------------------------- #
+def _svc_conn(monkeypatch, *services):
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [
+        {"id": i, "service": name, "state": "RUNNING", "enable": True}
+        for i, name in enumerate(services, start=1)
+    ]
+    _patch_conn(monkeypatch, svc_tools, conn)
+    return conn
+
+
+@pytest.mark.unit
+def test_service_restart_refuses_absent_service_via_mcp(gov_home, monkeypatch):
+    conn = _svc_conn(monkeypatch, "smb")
+    out = svc_tools.service_restart(service="nosuchsvc")
+    assert "error" in out and "no service by that name" in out["error"]
+    conn.post.assert_not_called()
+
+
+@pytest.mark.unit
+def test_service_restart_guard_fires_on_the_dry_run_path(gov_home, monkeypatch):
+    """A preview of a call that will be refused must report the refusal.
+
+    The guard runs BEFORE the dry_run early return, so preview and real call
+    cannot disagree — a green ``wouldRestart`` for a name that is about to be
+    rejected reads to the caller as a transient failure worth retrying.
+    """
+    conn = _svc_conn(monkeypatch, "smb")
+    out = svc_tools.service_restart(service="nosuchsvc", dry_run=True)
+    assert "error" in out and "wouldRestart" not in out
+    conn.post.assert_not_called()
+
+
+@pytest.mark.unit
+def test_service_restart_dry_run_previews_without_posting(gov_home, monkeypatch):
+    """A dry run MAY read (the guard's /service lookup); it must never write."""
+    conn = _svc_conn(monkeypatch, "smb")
+    out = svc_tools.service_restart(service="smb", dry_run=True)
+    assert out == {"dryRun": True, "wouldRestart": {"service": "smb"}}
+    conn.post.assert_not_called()
+    assert conn.get.called, "the guard must still have run against the real target"
+
+
+@pytest.mark.unit
+def test_service_restart_refuses_ssh_without_confirm_via_mcp(gov_home, monkeypatch):
+    conn = _svc_conn(monkeypatch, "ssh")
+    out = svc_tools.service_restart(service="ssh")
+    assert "error" in out and "confirm=True" in out["error"]
+    conn.post.assert_not_called()
+
+
+@pytest.mark.unit
+def test_service_restart_ssh_refusal_also_fires_under_dry_run(gov_home, monkeypatch):
+    conn = _svc_conn(monkeypatch, "ssh")
+    out = svc_tools.service_restart(service="ssh", dry_run=True)
+    assert "error" in out and "wouldRestart" not in out
+    conn.post.assert_not_called()
+
+
+@pytest.mark.unit
+def test_service_restart_allows_ssh_with_confirm_via_mcp(gov_home, monkeypatch):
+    conn = _svc_conn(monkeypatch, "ssh")
+    result = svc_tools.service_restart(service="ssh", confirm=True)
+    conn.post.assert_called_once_with("/service/restart", json={"service": "ssh"})
+    assert result["priorState"]["service"] == "ssh"
+
+
+@pytest.mark.unit
+def test_service_restart_fails_open_when_lookup_raises_via_mcp(gov_home, monkeypatch):
+    """An unreadable /service must not turn into a refusal on the MCP path either."""
+    conn = MagicMock(name="conn")
+    conn.get.side_effect = RuntimeError("service list boom")
+    _patch_conn(monkeypatch, svc_tools, conn)
+    result = svc_tools.service_restart(service="smb")
+    assert result["priorState"] == {}
+    conn.post.assert_called_once_with("/service/restart", json={"service": "smb"})
+
+
+# --------------------------------------------------------------------------- #
+# dry_run on the other write tools — preview, never POST
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_write_tool_dry_runs_preview_without_calling_the_api(gov_home, monkeypatch):
+    conn = MagicMock(name="conn")
+    for module in (ds_tools, pool_tools, snap_tools):
+        _patch_conn(monkeypatch, module, conn)
+
+    assert ds_tools.dataset_create(name="tank/new", dry_run=True) == {
+        "dryRun": True, "wouldCreateDataset": {"name": "tank/new", "pool": None},
+    }
+    assert pool_tools.pool_scrub_start(pool_name="tank", dry_run=True) == {
+        "dryRun": True, "wouldStartScrub": {"poolName": "tank"},
+    }
+    assert snap_tools.snapshot_create(dataset="tank/d", name="s1", dry_run=True) == {
+        "dryRun": True, "wouldCreateSnapshot": {"id": "tank/d@s1"},
+    }
+    assert snap_tools.snapshot_delete(snapshot_id="tank/d@s1", dry_run=True) == {
+        "dryRun": True, "wouldDeleteSnapshot": {"snapshotId": "tank/d@s1"},
+    }
+
+    conn.post.assert_not_called()
+    conn.delete.assert_not_called()
+
+
+@pytest.mark.unit
+def test_snapshot_create_dry_run_records_no_undo_token(gov_home, monkeypatch):
+    """A preview created nothing, so there is nothing to invert."""
+    from truenas_aiops.governance.undo import get_undo_store
+
+    conn = MagicMock(name="conn")
+    _patch_conn(monkeypatch, snap_tools, conn)
+    snap_tools.snapshot_create(dataset="tank/d", name="s1", dry_run=True)
+    assert get_undo_store().list(status="recorded", limit=10) == []
 
 
 @pytest.mark.unit

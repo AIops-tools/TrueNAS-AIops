@@ -190,22 +190,87 @@ def test_restart_service_posts_and_captures_prior_state():
 
 
 @pytest.mark.unit
-def test_restart_service_prior_state_empty_when_not_found():
+def test_restart_service_refuses_a_service_absent_from_the_service_list():
+    """The lookup is a GUARD, not decoration: an absent name must not be POSTed.
+
+    This previously forwarded any caller string straight to the middleware and
+    kept the lookup only as ``priorState``.
+    """
     conn = MagicMock(name="conn")
     conn.get.return_value = [{"id": 2, "service": "smb", "state": "RUNNING"}]
-    result = svc_ops.restart_service(conn, "ssh")
-    assert result["priorState"] == {}
-    conn.post.assert_called_once_with("/service/restart", json={"service": "ssh"})
+    with pytest.raises(svc_ops.UnknownService) as excinfo:
+        svc_ops.restart_service(conn, "nosuchsvc")
+    conn.post.assert_not_called()
+    assert "service_list" in str(excinfo.value), "the refusal must name the way forward"
 
 
 @pytest.mark.unit
-def test_restart_service_swallows_lookup_error_but_still_restarts():
-    """A failed prior-state lookup must not block the restart (advisory only)."""
+def test_restart_service_still_restarts_a_present_non_ssh_service():
+    """Exactness: the guard must not catch anything it was not aimed at."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [
+        {"id": 1, "service": "nfs", "state": "STOPPED", "enable": False},
+        {"id": 2, "service": "smb", "state": "RUNNING", "enable": True},
+    ]
+    result = svc_ops.restart_service(conn, "smb")
+    conn.post.assert_called_once_with("/service/restart", json={"service": "smb"})
+    assert result["priorState"]["state"] == "RUNNING"
+
+
+@pytest.mark.unit
+def test_restart_service_fails_open_when_the_service_lookup_raises():
+    """Unknown must never read as "refuse".
+
+    A ``/service`` that cannot be read says nothing about whether the service
+    exists. Failing closed here would block every restart on exactly the host
+    that is already unwell — the wrong direction.
+    """
     conn = MagicMock(name="conn")
     conn.get.side_effect = RuntimeError("service list boom")
     result = svc_ops.restart_service(conn, "smb")
     assert result["priorState"] == {}
     conn.post.assert_called_once_with("/service/restart", json={"service": "smb"})
+
+
+@pytest.mark.unit
+def test_lookup_service_distinguishes_absent_from_unreadable():
+    """The split the guard rests on: {} used to mean both."""
+    present = MagicMock(name="conn")
+    present.get.return_value = [{"id": 1, "service": "smb", "state": "RUNNING"}]
+    assert svc_ops._lookup_service(present, "smb")[0] == svc_ops.FOUND
+    assert svc_ops._lookup_service(present, "nfs")[0] == svc_ops.ABSENT
+
+    broken = MagicMock(name="conn")
+    broken.get.side_effect = RuntimeError("boom")
+    assert svc_ops._lookup_service(broken, "nfs")[0] == svc_ops.UNKNOWN
+
+
+@pytest.mark.unit
+def test_restart_service_refuses_ssh_without_confirm():
+    """ssh is the out-of-band recovery path; bouncing it can strand the operator."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [{"id": 3, "service": "ssh", "state": "RUNNING", "enable": True}]
+    with pytest.raises(svc_ops.RecoveryPathRestart):
+        svc_ops.restart_service(conn, "ssh")
+    conn.post.assert_not_called()
+
+
+@pytest.mark.unit
+def test_restart_service_allows_ssh_with_confirm():
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [{"id": 3, "service": "ssh", "state": "RUNNING", "enable": True}]
+    result = svc_ops.restart_service(conn, "ssh", confirm=True)
+    conn.post.assert_called_once_with("/service/restart", json={"service": "ssh"})
+    assert result["priorState"]["service"] == "ssh"
+
+
+@pytest.mark.unit
+def test_restart_service_confirm_is_not_required_for_other_services():
+    """confirm gates ssh SPECIFICALLY — it must not become a blanket toll."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [{"id": 2, "service": "nfs", "state": "RUNNING", "enable": True}]
+    svc_ops.restart_service(conn, "nfs")
+    conn.post.assert_called_once_with("/service/restart", json={"service": "nfs"})
 
 
 # --------------------------------------------------------------------------- #
