@@ -416,16 +416,37 @@ def test_scrub_start_posts_and_captures_prior_scan():
     conn.post.assert_called_once_with("/pool/scrub/run", json={"name": "tank"})
     assert result["pool"] == "tank"
     assert result["action"] == "scrub_start"
-    assert result["priorScan"] == {"state": "FINISHED"}
+    assert result["priorScan"] == {"found": True, "state": {"state": "FINISHED"}, "error": None}
 
 
 @pytest.mark.unit
-def test_scrub_start_prior_scan_empty_when_lookup_fails():
+def test_scrub_start_prior_scan_reports_probe_failure_not_emptiness():
+    """A failed /pool read must be distinguishable from 'never scrubbed'."""
     conn = MagicMock(name="conn")
     conn.get.side_effect = RuntimeError("pool list boom")
     result = pool_ops.scrub_start(conn, "tank")
-    assert result["priorScan"] == {}
+    assert result["priorScan"]["found"] is None  # unknown, NOT absent
+    assert result["priorScan"]["state"] is None
+    assert "pool list boom" in result["priorScan"]["error"]
     conn.post.assert_called_once_with("/pool/scrub/run", json={"name": "tank"})
+
+
+@pytest.mark.unit
+def test_scrub_start_prior_scan_absent_when_pool_not_listed():
+    """The other branch: /pool was read fine, the pool simply was not in it."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [{"name": "other", "scan": {"state": "FINISHED"}}]
+    result = pool_ops.scrub_start(conn, "tank")
+    assert result["priorScan"] == {"found": False, "state": None, "error": None}
+
+
+@pytest.mark.unit
+def test_scrub_start_prior_scan_found_with_null_state_when_never_scrubbed():
+    """Pool present but no scan block: a real null, not an unknown."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [{"name": "tank"}]
+    result = pool_ops.scrub_start(conn, "tank")
+    assert result["priorScan"] == {"found": True, "state": {"state": None}, "error": None}
 
 
 @pytest.mark.unit
@@ -519,13 +540,30 @@ def test_create_snapshot_posts_and_falls_back_to_composed_id():
 
 
 @pytest.mark.unit
-def test_delete_snapshot_find_swallows_lookup_error():
+def test_delete_snapshot_reports_lookup_failure_in_prior_state():
+    """An irreversible delete must say when it never learned what it destroyed.
+
+    Formerly ``priorState == {}``, which was indistinguishable from a confirmed
+    'the snapshot was already gone'.
+    """
     conn = MagicMock(name="conn")
     conn.get.side_effect = RuntimeError("snapshot list boom")
     conn.delete.return_value = True
     result = snap_ops.delete_snapshot(conn, "tank/data@snap1")
-    assert result["priorState"] == {}
+    assert result["priorState"]["found"] is None  # unknown, NOT absent
+    assert result["priorState"]["state"] is None
+    assert "snapshot list boom" in result["priorState"]["error"]
     conn.delete.assert_called_once_with("/zfs/snapshot/id/tank%2Fdata%40snap1")
+
+
+@pytest.mark.unit
+def test_delete_snapshot_prior_state_absent_when_confirmed_gone():
+    """The other branch: the list was read cleanly and the id was not in it."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [{"id": "tank/data@other"}]
+    conn.delete.return_value = True
+    result = snap_ops.delete_snapshot(conn, "tank/data@snap1")
+    assert result["priorState"] == {"found": False, "state": None, "error": None}
 
 
 @pytest.mark.unit
@@ -571,3 +609,28 @@ def test_list_snapshots_exactly_at_the_limit_is_not_truncated():
     result = snap_ops.list_snapshots(conn, limit=2)
     assert result["returned"] == 2
     assert result["truncated"] is False
+
+
+# ── probe-outcome envelope: the three cases must never collapse ─────────────
+
+
+@pytest.mark.unit
+def test_probe_helpers_keep_absent_and_failed_distinguishable():
+    """`found` is False for a confirmed absence and None for an unknown one.
+
+    Collapsing these is the bug class that let MinIO's drive_status report a
+    failed scrape as a healthy server with nothing to say.
+    """
+    from truenas_aiops.ops._util import probe_absent, probe_failed, probe_found
+
+    assert probe_found({"a": 1}) == {"found": True, "state": {"a": 1}, "error": None}
+    assert probe_absent() == {"found": False, "state": None, "error": None}
+
+    failed = probe_failed(RuntimeError("boom"))
+    assert failed["found"] is None  # unknown, not absent
+    assert failed["state"] is None
+    assert "boom" in failed["error"]
+
+    # The discriminator a consumer actually reads must differ across all three.
+    outcomes = [probe_found({})["found"], probe_absent()["found"], failed["found"]]
+    assert len(set(map(repr, outcomes))) == 3

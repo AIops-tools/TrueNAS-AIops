@@ -9,16 +9,32 @@ the tool now enforces them itself.
 The distinction matters. A guardrail in a prompt is a request. A guardrail in the
 harness is a guarantee. Anything below that we could move into the harness, we did.
 
-## What the tool now enforces — do not waste prompt budget on these
+## Authorization is not this tool's job — decide it where it belongs
+
+Whether a write should happen is your decision, or the account's. The tool does
+not gate it — there is no read-only switch and no approval prompt to configure.
+The two right places to control read vs write:
+
+- **The account you connect with.** Scope the TrueNAS API key to a
+  limited-privilege account (the key inherits its user's permissions). A write
+  then fails at the appliance, which is the only place the permission actually
+  lives — a revoked permission cannot be argued around by a model, but a
+  skill-side flag can.
+- **Your agent's system prompt.** If you want an observe-only session, tell the
+  model not to call the write tools (they are clearly tagged `[WRITE]`).
+
+What the tool *does* guarantee is that you can always see what happened:
+
+## What the tool enforces — do not waste prompt budget on these
 
 | You might be tempted to prompt | Why you don't need to |
 |---|---|
-| "Work read-only, never modify anything" | Set `TRUENAS_READ_ONLY=1`. The 6 write tools (`snapshot_create`, `snapshot_delete`, `dataset_create`, `pool_scrub_start`, `service_restart`, `undo_apply`) are then **not registered at all** — 19 read tools remain, and the model cannot call a write even if it tries. The `@governed_tool` harness independently refuses non-`low` risk calls, so the CLI is covered too. |
 | "Don't invent a value when a field is missing" | A field the TrueNAS middleware did not return comes back as `null`, never as `""`. Absent and empty are distinguishable in the payload — a disk with no `serial`, a dataset with no `mountpoint`, a replication task with no `state` all report `null`. |
 | "Tell me if the output was cut off" | `snapshot_list` and `undo_list` return `{"snapshots": [...], "returned": N, "limit": L, "truncated": true/false}`. Truncation is measured, not guessed from a length coincidence. This matters most for snapshots: a periodic snapshot task retaining hourly/daily/weekly across a few datasets produces thousands of rows. |
 | "Preserve the ordering / tell me what's most urgent" | `pool_health_rca` and `alert_and_capacity_rca` findings carry an explicit 1-based `rank`, worst-first. Priority is in the payload, not implied by list position. |
-| "Confirm before anything destructive" | `snapshot delete` and `service restart` at the CLI require `--dry-run`-able preview plus double confirmation, and the `high`-risk tier (`snapshot_delete`) requires a named approver in `TRUENAS_AUDIT_APPROVED_BY`. |
-| "Log what you did" | Every governed MCP call is audited to `~/.truenas-aiops/audit.db` regardless of what the model says it did. `snapshot_create` additionally records a replayable inverse undo token. |
+| "Confirm before anything destructive" | `snapshot delete` and `service restart` at the CLI require a `--dry-run`-able preview plus double confirmation. `snapshot_delete` captures the BEFORE state for the audit record. |
+| "Log what you did" | Every governed call is audited to `~/.truenas-aiops/audit.db` regardless of what the model says it did — and the CLI writes the same row the MCP path does, so there is no unaudited entry point. `snapshot_create` additionally records a replayable inverse undo token. |
+| "Don't get stuck retrying" | The runaway guard trips a circuit breaker if the same call is hammered in a tight loop — a stuck agent is stopped rather than left to burn calls and time. |
 | "Don't paraphrase the pool status" | Pool `status` and `healthy` are passed through verbatim from ZFS — the ops layer never normalises `HEALTHY` / `DEGRADED` / `FAULTED` / `OFFLINE`. Only the model can break that; see the prompt below. |
 
 ## What still needs a prompt
@@ -69,17 +85,20 @@ SCOPE
 
 ## Recommended setup for a local model
 
+Start with a connection that *cannot* write, verify, and widen the account's
+permission only when you trust the setup — snapshot deletion is irreversible and
+takes any dependent clones with it:
+
 ```bash
-# Read-only until you trust the setup — this is enforced, not advisory.
-export TRUENAS_READ_ONLY=1
+# e.g. connect with an API key for a limited-privilege TrueNAS account that
+# lacks write access. Then:
 truenas-aiops doctor
 ```
 
-Then, when you are ready to allow writes, unset it and set an approver so the
-high-risk tier has an accountable name on it:
+Optionally annotate the audit trail with who is operating and why — recorded on
+every row, never required:
 
 ```bash
-unset TRUENAS_READ_ONLY
 export TRUENAS_AUDIT_APPROVED_BY="your.name@example.com"
 export TRUENAS_AUDIT_RATIONALE="scheduled maintenance window 2026-07-20"
 ```

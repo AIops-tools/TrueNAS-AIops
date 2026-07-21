@@ -118,9 +118,10 @@ truenas-aiops doctor
 - [ ] `snapshot delete ... --dry-run` → previews only; the real delete is
       IRREVERSIBLE, captures BEFORE state, and correctly declares no undo.
 
-### 4. Governance actually gates
-- [ ] With no `rules.yaml`, a `high`-risk op is refused unless
-      `TRUENAS_AUDIT_APPROVED_BY` names an approver (secure-by-default).
+### 4. Governance records every write
+- [ ] A `high`-risk op (`snapshot_delete`) runs without any approver set and
+      still lands an audit row tagged `risk_tier=review`; setting
+      `TRUENAS_AUDIT_APPROVED_BY` only annotates that row — it does not gate.
 
 ### 5. Cleanup
 - [ ] Destroy the throwaway dataset/pool; confirm the destroy is audited.

@@ -13,7 +13,7 @@ from truenas_aiops.cli._common import (
     TargetOption,
     cli_errors,
     console,
-    dry_run_print,
+    dry_run_preview,
     get_connection,
 )
 from truenas_aiops.ops import datasets
@@ -46,7 +46,10 @@ def dataset_create(
 ) -> None:
     """Create a ZFS dataset (full path, e.g. 'tank/projects')."""
     if dry_run:
-        dry_run_print(
+        # Through the governed call so its guards run and the preview is
+        # audited, exactly as the MCP path has always audited previews.
+        dry_run_preview(
+            gov.dataset_create(name=name, dry_run=True, target=target),
             operation="create_dataset",
             api_call="POST /pool/dataset",
             parameters={"name": name},

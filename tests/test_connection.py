@@ -11,6 +11,7 @@ import pytest
 from truenas_aiops.config import AppConfig, TargetConfig
 from truenas_aiops.connection import (
     ConnectionManager,
+    NonJsonResponse,
     TrueNASApiError,
     TrueNASConnection,
     UnsupportedServerVersion,
@@ -146,13 +147,48 @@ def test_empty_content_returns_empty_dict():
     assert conn.get("/x") == {}
 
 
-@pytest.mark.unit
-def test_invalid_json_body_returns_empty_dict():
-    class _BadJson(_Resp):
-        def json(self):
-            raise ValueError("not json")
+class _BadJson(_Resp):
+    def json(self):
+        raise ValueError("not json")
 
-    conn = _conn(resp=_BadJson(200, content=b"<html>"))
+
+@pytest.mark.unit
+def test_invalid_json_body_raises_rather_than_returning_empty():
+    """A 2xx with an unparseable body is a wrong endpoint, not an empty result.
+
+    This used to return ``{}``, so a base_url pointing at the web UI made every
+    read succeed with nothing in it — a misconfigured target rendered as a
+    healthy, empty appliance.
+    """
+    conn = _conn(resp=_BadJson(200, content=b"<html>", text="<html><body>login</body></html>"))
+    with pytest.raises(NonJsonResponse) as excinfo:
+        conn.get("/pool")
+    assert isinstance(excinfo.value, TrueNASApiError)  # CLI translator still catches it
+
+
+@pytest.mark.unit
+def test_non_json_html_body_names_the_web_ui_as_the_likely_cause():
+    conn = _conn(resp=_BadJson(200, content=b"<html>", text="<!DOCTYPE html>\n<html>hi</html>"))
+    with pytest.raises(NonJsonResponse) as excinfo:
+        conn.get("/pool")
+    message = str(excinfo.value)
+    assert "HTML" in message
+    assert "web UI" in message
+    assert "/api/v2.0" in message
+
+
+@pytest.mark.unit
+def test_non_json_non_html_body_does_not_claim_html():
+    conn = _conn(resp=_BadJson(200, content=b"oops", text="plain text failure"))
+    with pytest.raises(NonJsonResponse) as excinfo:
+        conn.get("/pool")
+    assert "not JSON" in str(excinfo.value)
+
+
+@pytest.mark.unit
+def test_empty_body_still_returns_empty_dict():
+    """204/empty-body is a genuine 'the server reported nothing' — it must stay."""
+    conn = _conn(resp=_Resp(200, content=b""))
     assert conn.get("/x") == {}
 
 

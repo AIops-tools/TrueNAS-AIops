@@ -10,6 +10,7 @@ for audit elsewhere, so here we only assert the CLI branch/flow.
 
 from __future__ import annotations
 
+import sqlite3
 from unittest.mock import MagicMock
 
 import pytest
@@ -34,6 +35,15 @@ def gov_home(tmp_path, monkeypatch):
     audit_mod.reset_engine()
     policy_mod.reset_policy_engine()
     undo_mod.reset_undo_store()
+
+
+def _audit_tools(db_path) -> list[str]:
+    """Tool names recorded in audit.db, in insertion order."""
+    conn = sqlite3.connect(db_path)
+    try:
+        return [r[0] for r in conn.execute("SELECT tool FROM audit_log ORDER BY id")]
+    finally:
+        conn.close()
 
 
 def _mock_conn_for(monkeypatch, module_path: str, conn):
@@ -147,13 +157,49 @@ def test_read_command_translates_api_error_to_one_liner(monkeypatch):
 # write commands — dry-run and confirmed branches
 # --------------------------------------------------------------------------- #
 @pytest.mark.unit
-def test_dataset_create_dry_run_makes_no_call(monkeypatch):
-    gov = MagicMock(name="gov_dataset_create")
+def test_dataset_create_dry_run_mutates_nothing_but_is_audited(gov_home, monkeypatch):
+    """A preview MAY read; it must never write — and it IS audited.
+
+    Drives the REAL governed twin (only its connection is faked) so the audit
+    assertion means something. The superseded rule asserted the twin was never
+    called at all, which is precisely what made the preview's guards dead code.
+    """
+    import mcp_server.tools.datasets as gov_datasets
+
+    conn = MagicMock(name="conn")
+    monkeypatch.setattr(gov_datasets, "_get_connection", lambda target=None: conn)
+
+    r = runner.invoke(app, ["dataset", "create", "tank/new", "--dry-run"])
+    assert r.exit_code == 0, r.output
+    assert "DRY-RUN" in r.output
+    for verb in ("post", "put", "patch", "delete"):
+        assert not getattr(conn, verb).called, f"dry-run issued a {verb.upper()}"
+    assert _audit_tools(gov_home / "audit.db") == ["dataset_create"]
+
+
+@pytest.mark.unit
+def test_dataset_create_dry_run_renders_the_ordinary_banner(monkeypatch):
+    """An allowed preview looks exactly as it always did — routing through the
+    governed call buys the guard and the audit row, not a new serialization."""
+    gov = MagicMock(return_value={"dryRun": True, "wouldCreateDataset": {"name": "tank/new"}})
     monkeypatch.setattr("truenas_aiops.cli.dataset.gov.dataset_create", gov)
     r = runner.invoke(app, ["dataset", "create", "tank/new", "--dry-run"])
-    assert r.exit_code == 0
+    assert r.exit_code == 0, r.output
     assert "DRY-RUN" in r.output
-    gov.assert_not_called()
+    assert "POST /pool/dataset" in r.output
+    assert "tank/new" in r.output
+    assert gov.call_args.kwargs["dry_run"] is True
+
+
+@pytest.mark.unit
+def test_dataset_create_dry_run_refusal_exits_nonzero(monkeypatch):
+    """A refused preview prints the teaching message, not a green banner."""
+    gov = MagicMock(return_value={"error": "Pool 'nope' does not exist", "hint": "..."})
+    monkeypatch.setattr("truenas_aiops.cli.dataset.gov.dataset_create", gov)
+    r = runner.invoke(app, ["dataset", "create", "nope/x", "--dry-run"])
+    assert r.exit_code == 1
+    assert "does not exist" in r.output
+    assert "DRY-RUN" not in r.output
 
 
 @pytest.mark.unit

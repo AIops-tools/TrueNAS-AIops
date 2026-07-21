@@ -16,6 +16,9 @@ its own class: a 404 on an endpoint that exists on every REST-capable TrueNAS
 means the REST base path is not being served at all (TrueNAS 26 removed REST),
 which raises :class:`UnsupportedServerVersion` rather than a misleading
 "resource not found — the id may be stale". See :mod:`truenas_aiops.version_support`.
+A 2xx whose body is not JSON gets its own class too (:class:`NonJsonResponse`):
+it means the URL is not the REST API at all, and it must not degrade to an empty
+result that reads as a healthy, empty appliance.
 
 The httpx client is injectable for tests: pass ``client=`` to
 ``TrueNASConnection`` to substitute a mock that implements ``request`` / ``close``.
@@ -84,6 +87,41 @@ class UnsupportedServerVersion(TrueNASApiError):  # noqa: N818 — teaching erro
     problem that does not exist when the real cause is that TrueNAS 26 removed
     the REST API wholesale.
     """
+
+
+class NonJsonResponse(TrueNASApiError):  # noqa: N818 — teaching error, reads as a statement
+    """A 2xx response whose body is not JSON — almost never the real API.
+
+    Subclasses :class:`TrueNASApiError` so the CLI's error translator and every
+    existing handler keep working. It exists because the alternative was worse:
+    this used to be swallowed into an empty ``{}``, so a base_url pointing at
+    the TrueNAS **web UI** (or a reverse proxy / captive portal / SSO login page
+    answering 200 with HTML) made every single read return nothing — no pools,
+    no disks, no alerts, no error. A completely misconfigured target rendered as
+    a perfectly healthy, perfectly empty appliance. An empty answer must never
+    be the way a wrong endpoint announces itself.
+    """
+
+
+def _non_json_message(base_url: str, path: str, body: str) -> str:
+    """Explain a 2xx whose body is not JSON: usually a wrong base_url."""
+    snippet = body[:120].strip().replace("\n", " ")
+    looks_html = snippet[:200].lstrip().lower().startswith(("<!doctype", "<html"))
+    hint = (
+        "The body is HTML, which means this URL is serving a web page rather than the "
+        "REST API — most often the TrueNAS web UI itself, or a reverse proxy / SSO "
+        "login page in front of it. "
+        if looks_html
+        else "The body is not JSON, so this URL is not answering as the REST API. "
+    )
+    return (
+        f"TrueNAS returned a success status for {path} but the body could not be parsed as "
+        f"JSON. {hint}Check 'base_url' and 'api_path' in ~/.truenas-aiops/config.yaml — the "
+        f"base URL must include the API base path (expected {base_url.rstrip('/')} to end in "
+        f"/api/v2.0). This is reported rather than treated as an empty result on purpose: "
+        f"silently returning nothing here would make a misconfigured target look like a "
+        f"healthy appliance with no pools, no disks and no alerts. Body starts: {snippet}"
+    )
 
 
 def _looks_like_rest_removed(path: str) -> bool:
@@ -176,11 +214,18 @@ class TrueNASConnection:
                 path=path,
             )
         if not resp.content:
+            # Genuinely empty: the middleware answers DELETE and some POSTs with
+            # a 2xx and no body. "The server reported nothing" is the true
+            # reading, so {} is correct here and stays.
             return {}
         try:
             return resp.json()
-        except ValueError:
-            return {}
+        except ValueError as exc:
+            raise NonJsonResponse(
+                _non_json_message(self._target.base_url, path, resp.text),
+                status_code=resp.status_code,
+                path=path,
+            ) from exc
 
     def get(self, path: str, **kwargs: Any) -> Any:
         return self.request("GET", path, **kwargs)

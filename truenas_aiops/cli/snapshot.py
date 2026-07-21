@@ -15,7 +15,7 @@ from truenas_aiops.cli._common import (
     cli_errors,
     console,
     double_confirm,
-    dry_run_print,
+    dry_run_preview,
     get_connection,
 )
 from truenas_aiops.ops import snapshots
@@ -66,7 +66,11 @@ def snapshot_delete(
 ) -> None:
     """Delete a ZFS snapshot by id 'dataset@name' (IRREVERSIBLE — double confirm)."""
     if dry_run:
-        dry_run_print(
+        # Through the governed call: a high-risk delete is gated by the policy
+        # layer, so a preview that skipped it could show green for a call the
+        # real run refuses. Routing here also lands the audit row.
+        dry_run_preview(
+            gov.snapshot_delete(snapshot_id=snapshot_id, dry_run=True, target=target),
             operation="delete_snapshot",
             api_call=f"DELETE /zfs/snapshot/id/{snapshot_id}",
         )

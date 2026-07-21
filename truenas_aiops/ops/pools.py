@@ -14,7 +14,7 @@ from typing import Any
 
 from truenas_aiops.connection import _seg
 from truenas_aiops.governance import opt_str
-from truenas_aiops.ops._util import as_list, s
+from truenas_aiops.ops._util import as_list, probe_absent, probe_failed, probe_found, s
 
 
 def _pool_summary(pool: dict) -> dict:
@@ -106,21 +106,46 @@ def pool_capacity(conn: Any) -> list[dict]:
     return rows
 
 
+def _prior_scan(conn: Any, pool_name: str) -> dict:
+    """BEFORE-state probe for a pool's scan status, as a three-outcome envelope.
+
+    Returns ``probe_found`` / ``probe_absent`` / ``probe_failed`` — see
+    :mod:`truenas_aiops.ops._util`.
+
+    This used to collapse three different facts into a bare ``{}``: the pool was
+    not in ``/pool``, the pool was there but reported no ``scan`` block, and
+    ``/pool`` could not be read at all. The middle one is the dangerous
+    collapse — "this pool has never been scrubbed" and "we could not tell" read
+    identically, and the first is exactly the state an operator starts a scrub
+    to change. ``found=false`` now means the pool itself was not listed, which
+    is worth noticing before the POST that follows.
+    """
+    try:
+        rows = as_list(conn.get("/pool"))
+    except Exception as exc:  # noqa: BLE001 — reported, never silently swallowed
+        return probe_failed(exc)
+    for p in rows:
+        if p.get("name") == pool_name:
+            scan = p.get("scan")
+            # A pool with no scan block has genuinely never been scrubbed: the
+            # probe succeeded, so this is a real null, not an unknown.
+            state = opt_str(scan.get("state"), 32) if isinstance(scan, dict) else None
+            return probe_found({"state": state})
+    return probe_absent()
+
+
 def scrub_start(conn: Any, pool_name: str) -> dict:
     """[WRITE] Start a scrub on a pool (medium risk). Captures prior scan state.
 
     Maps to ``POST /pool/scrub/run`` with the pool name. A scrub is a
     non-destructive integrity check; there is no clean inverse beyond cancelling
     it, so no undo descriptor is recorded.
+
+    ``priorScan`` is a three-outcome envelope
+    ``{"found": bool | null, "state": {...} | null, "error": str | null}``.
+    ``found=null`` with an ``error`` means the prior scan state could not be
+    read — the scrub was still started; only the BEFORE record is missing.
     """
-    prior = {}
-    try:
-        for p in as_list(conn.get("/pool")):
-            if p.get("name") == pool_name:
-                scan = p.get("scan") or {}
-                prior = {"state": opt_str(scan.get("state"), 32)} if isinstance(scan, dict) else {}
-                break
-    except Exception:  # noqa: BLE001 — advisory context only
-        prior = {}
+    prior = _prior_scan(conn, pool_name)
     conn.post("/pool/scrub/run", json={"name": pool_name})
     return {"pool": s(pool_name, 128), "action": "scrub_start", "priorScan": prior}

@@ -22,7 +22,7 @@ compatibility: >
   Standalone, self-governed TrueNAS SCALE storage operations. The governance harness (audit, policy, token/runaway budget, undo, risk-tiers) is bundled in the package — no external skill-family dependency.
   All write operations are audited to a local SQLite DB under ~/.truenas-aiops/ (relocatable via TRUENAS_AIOPS_HOME).
   Credentials: Each TrueNAS target's API key is stored ENCRYPTED in ~/.truenas-aiops/secrets.enc (Fernet/AES-128 + scrypt-derived key) — never plaintext on disk. Run 'truenas-aiops init' to onboard, or 'truenas-aiops secret set <target>' to add one (create the key in the TrueNAS UI: Credentials → API Keys). The store is unlocked by a master password from TRUENAS_AIOPS_MASTER_PASSWORD (non-interactive/MCP/CI) or an interactive prompt (CLI on a TTY). A legacy plaintext env var TRUENAS_<TARGET_NAME_UPPER>_APIKEY is still honoured as a fallback with a deprecation warning (migrate with 'truenas-aiops secret migrate'). The API key is sent as an Authorization: Bearer header at request time and held only in memory; keys are never logged or echoed.
-  Destructive operations (snapshot delete, service restart) require double confirmation at the CLI layer and support --dry-run. All write tools pass through the @governed_tool decorator (pre-check + budget guard + audit + risk-tier gate). snapshot_create records an inverse snapshot_delete undo descriptor; snapshot_delete is high-risk and irreversible (captures BEFORE state, records no undo).
+  Destructive operations (snapshot delete, service restart) require double confirmation at the CLI layer and support --dry-run. All write tools pass through the @governed_tool decorator (budget guard + audit + risk-tier labelling). snapshot_create records an inverse snapshot_delete undo descriptor; snapshot_delete is high-risk and irreversible (captures BEFORE state, records no undo).
   Webhooks: none — no outbound network calls beyond the configured TrueNAS REST API endpoint.
   SSL: verify_ssl defaults to true; disable only for self-signed lab certificates.
   Transitive dependencies: httpx (HTTP client) and the MCP SDK. No post-install scripts or background services.
@@ -33,7 +33,7 @@ compatibility: >
 
 > **Disclaimer**: This is a community-maintained open-source project and is **not affiliated with, endorsed by, or sponsored by iXsystems or the TrueNAS project.** "TrueNAS" is a trademark of its owner. Source code is publicly auditable at [github.com/AIops-tools/TrueNAS-AIops](https://github.com/AIops-tools/TrueNAS-AIops) under the MIT license.
 
-Governed TrueNAS SCALE storage operations — **25 MCP tools**, every one wrapped with the bundled `@governed_tool` harness: a local unified audit log under `~/.truenas-aiops/`, policy engine, token/runaway budget guard, undo-token recording, and graduated-autonomy risk tiers. The TrueNAS API key is stored **encrypted** (`~/.truenas-aiops/secrets.enc`, Fernet + scrypt) — never plaintext on disk.
+Governed TrueNAS SCALE storage operations — **25 MCP tools**, every one wrapped with the bundled `@governed_tool` harness: a local unified audit log under `~/.truenas-aiops/`, policy engine, token/runaway budget guard, undo-token recording, and descriptive risk tiers. The TrueNAS API key is stored **encrypted** (`~/.truenas-aiops/secrets.enc`, Fernet + scrypt) — never plaintext on disk.
 
 > **Standalone**: the governance harness is bundled in the package (`truenas_aiops.governance`) — truenas-aiops has no external skill-family dependency. **Mock-validated only**: coverage focuses on common TrueNAS operations, is not yet exhaustive, and is not yet validated against a live appliance.
 
@@ -134,7 +134,7 @@ truenas-aiops doctor
 | Undo (governance) | `undo_list` | Read |
 | | `undo_apply` | Write |
 
-**Harness features that light up**: `snapshot_create` passes an `undo=` lambda so the harness records an inverse `snapshot_delete` descriptor (with `_undo_id`) to the undo store. `snapshot_delete` is tagged `risk_level=high`, captures the snapshot's BEFORE state, and declares no undo (it is irreversible). `pool_scrub_start`, `dataset_create`, and `service_restart` are `medium` risk and capture prior state where relevant. All 25 tools are audit-logged under `~/.truenas-aiops/` and pass through the policy pre-check + budget/runaway guard + graduated risk-tier gate. Start any triage with `overview`.
+**Harness features that light up**: `snapshot_create` passes an `undo=` lambda so the harness records an inverse `snapshot_delete` descriptor (with `_undo_id`) to the undo store. `snapshot_delete` is tagged `risk_level=high`, captures the snapshot's BEFORE state, and declares no undo (it is irreversible). `pool_scrub_start`, `dataset_create`, and `service_restart` are `medium` risk and capture prior state where relevant. All 25 tools are audit-logged under `~/.truenas-aiops/` and pass through the budget/runaway guard, with a descriptive risk-tier label on each audit row. Start any triage with `overview`.
 
 ## CLI Quick Reference
 
@@ -173,7 +173,7 @@ truenas-aiops mcp                                     # start MCP server (stdio)
 
 See `references/cli-reference.md` for the full command list, and
 `references/agent-guardrails.md` when driving these tools with a smaller /
-local model (read-only mode, enforced guardrails, ready-to-paste system prompt).
+local model (enforced guardrails, ready-to-paste system prompt).
 
 ## Troubleshooting
 
@@ -197,14 +197,18 @@ The pool/dataset/snapshot id is stale. List the parent collection first (`pool l
 
 ## Audit & Safety
 
-All operations are automatically audited via the bundled `@governed_tool` decorator (`truenas_aiops.governance`):
-- API key stored **encrypted** in `~/.truenas-aiops/secrets.enc` (Fernet/AES-128 + scrypt key derivation; chmod 600) — never plaintext on disk; the master password is never stored, only a per-store salt + ciphertext
-- Every tool call logged to `~/.truenas-aiops/audit.db` (local SQLite audit DB; relocate with `TRUENAS_AIOPS_HOME`)
-- Policy rules enforced via `~/.truenas-aiops/rules.yaml` (deny rules, maintenance windows, risk tiers)
-- **Secure by default (v0.2.0+)**: with no `~/.truenas-aiops/rules.yaml`, high/critical operations are denied unless `TRUENAS_AUDIT_APPROVED_BY` names an approver (set `TRUENAS_AUDIT_RATIONALE` too). `truenas-aiops init` seeds a starter rules.yaml; an operator-authored rules file is honoured as-is.
-- Budget / runaway guard caps cumulative tool calls and wall-time, and trips on tight scrub/poll loops
-- Undo store records the inverse descriptor for `snapshot_create`
-- Graduated-autonomy risk tiers gate write operations (require a recorded approver for the highest tiers)
+The skill delivers reads and writes and records them; it does **not** decide
+whether a write is permitted. That is your agent's judgement, or the permission
+of the account you connect it with (scope the TrueNAS API key to a
+limited-privilege account and writes then fail at the appliance). There is no
+read-only switch, policy file, or approval gate.
+
+- API key stored **encrypted** in `~/.truenas-aiops/secrets.enc` (Fernet/AES-128 + scrypt key derivation; chmod 600) — never plaintext on disk; the master password is never stored, only a per-store salt + ciphertext.
+- **Audit is the guarantee, and it is not bypassable.** Every operation — MCP and CLI alike — is logged to `~/.truenas-aiops/audit.db` (relocatable via `TRUENAS_AIOPS_HOME`): params (secrets redacted), result, status, duration, and the risk tier. The CLI writes the same row the MCP path does.
+- `TRUENAS_AUDIT_APPROVED_BY` / `TRUENAS_AUDIT_RATIONALE` are optional annotations recorded on the audit row (who/why); they are never required and never block.
+- **Runaway guard** — a safety backstop, not authorization: cumulative tool calls and wall-time are capped, and a tight scrub/poll loop trips a circuit breaker.
+- Writes support `--dry-run` / `dry_run=True` and double confirmation at the CLI; CLI writes execute through the same governed tools, so they are audited + undo-recorded.
+- Reversible writes capture the real fetched before-state and record an inverse descriptor (e.g. `snapshot_create` → `snapshot_delete`) that replays against the tool's own signature.
 
 The harness is bundled in the package — no external dependency, no manual setup. See `references/setup-guide.md` for security details.
 

@@ -240,25 +240,32 @@ def test_snapshot_delete_captures_before_state():
     conn.delete.return_value = True
     result = ops.delete_snapshot(conn, "tank/data@snap1")
     assert result["action"] == "delete_snapshot"
-    assert result["priorState"]["id"] == "tank/data@snap1"
+    assert result["priorState"]["found"] is True
+    assert result["priorState"]["state"]["id"] == "tank/data@snap1"
+    assert result["priorState"]["error"] is None
     # The id is one URL path segment: '/' and '@' must be percent-encoded.
     conn.delete.assert_called_once_with("/zfs/snapshot/id/tank%2Fdata%40snap1")
 
 
 @pytest.mark.unit
 def test_dry_run_gates_destructive_cli(monkeypatch):
-    """snapshot delete --dry-run must not call the connection."""
+    """snapshot delete --dry-run may read, but must issue no mutating call.
+
+    Patches the connection on the GOVERNED twin: since the preview routes
+    through it, patching the CLI module's own get_connection would leave this
+    assertion vacuous (the dry-run branch never reaches it).
+    """
+    import mcp_server.tools.snapshots as gov_snapshots
     from truenas_aiops.cli import app
 
     conn = MagicMock(name="conn")
-    monkeypatch.setattr(
-        "truenas_aiops.cli.snapshot.get_connection", lambda target: (conn, None)
-    )
+    monkeypatch.setattr(gov_snapshots, "_get_connection", lambda target=None: conn)
     runner = CliRunner()
     result = runner.invoke(app, ["snapshot", "delete", "tank/data@snap1", "--dry-run"])
     assert result.exit_code == 0
     assert "DRY-RUN" in result.output
-    conn.delete.assert_not_called()
+    for verb in ("post", "put", "patch", "delete"):
+        assert not getattr(conn, verb).called, f"dry-run issued a {verb.upper()}"
 
 
 @pytest.mark.unit
@@ -387,3 +394,33 @@ def test_connection_manager_registers_for_atexit_cleanup():
     conn_mod._close_all_managers()
     assert closed["n"] == 1
     assert mgr.list_connected() == []
+
+
+@pytest.mark.unit
+def test_risk_level_agrees_with_read_write_docstring_tag():
+    """The two write-markers must never drift apart.
+
+    A tool's ``risk_level`` decides its audit tier and whether it gets dry-run /
+    undo handling; its ``[READ]``/``[WRITE]`` docstring tag is what the docs and
+    capability tables are built from. If a ``[WRITE]`` were left ``risk_level=low``
+    it would be audited as a read and skip the write machinery — this test caught
+    16 such mislabels line-wide once, so it is kept even though read-only mode
+    (its original motivation) is gone.
+    """
+    from mcp_server import server
+
+    untagged, mismatched = [], []
+    for name, tool in server.mcp._tool_manager._tools.items():
+        doc = (tool.fn.__doc__ or "").lstrip()
+        if doc.startswith("[READ]"):
+            tagged_as_read = True
+        elif doc.startswith("[WRITE]"):
+            tagged_as_read = False
+        else:
+            untagged.append(name)
+            continue
+        if tagged_as_read != (getattr(tool.fn, "_risk_level", "low") == "low"):
+            mismatched.append(name)
+
+    assert not untagged, f"tools missing a [READ]/[WRITE] docstring tag: {untagged}"
+    assert not mismatched, f"risk_level disagrees with the docstring tag: {mismatched}"

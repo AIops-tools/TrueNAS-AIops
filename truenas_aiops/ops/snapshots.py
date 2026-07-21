@@ -18,7 +18,7 @@ from typing import Any
 
 from truenas_aiops.connection import _seg
 from truenas_aiops.governance import opt_str
-from truenas_aiops.ops._util import as_list, s
+from truenas_aiops.ops._util import as_list, probe_absent, probe_failed, probe_found, s
 
 
 def _snapshot_summary(snap: dict) -> dict:
@@ -70,14 +70,27 @@ def list_snapshots(
 
 
 def _find_snapshot(conn: Any, snapshot_id: str) -> dict:
-    """Best-effort lookup of one snapshot record by id, or {} (advisory)."""
+    """BEFORE-state probe for one snapshot, as a three-outcome envelope.
+
+    Returns ``probe_found`` / ``probe_absent`` / ``probe_failed`` — see
+    :mod:`truenas_aiops.ops._util`.
+
+    This used to return a bare ``{}`` both when the snapshot was not in the list
+    and when the list could not be read at all. ``delete_snapshot`` is
+    irreversible and declares no undo, so this envelope is the *only* surviving
+    record of what was destroyed: an audit row reading ``priorState: {}`` could
+    mean "we checked, it was already gone" or "we destroyed something and never
+    found out what". Those are opposite facts about how much evidence exists,
+    and the second must never be able to look like the first.
+    """
     try:
-        for x in as_list(conn.get("/zfs/snapshot")):
-            if x.get("id") == snapshot_id:
-                return _snapshot_summary(x)
-    except Exception:  # noqa: BLE001 — advisory context only
-        return {}
-    return {}
+        rows = as_list(conn.get("/zfs/snapshot"))
+    except Exception as exc:  # noqa: BLE001 — reported, never silently swallowed
+        return probe_failed(exc)
+    for x in rows:
+        if x.get("id") == snapshot_id:
+            return probe_found(_snapshot_summary(x))
+    return probe_absent()
 
 
 def create_snapshot(conn: Any, dataset: str, name: str) -> dict:
@@ -99,6 +112,14 @@ def delete_snapshot(conn: Any, snapshot_id: str) -> dict:
 
     Captures the snapshot's prior state for the audit record; declares no undo
     (a deleted snapshot cannot be reconstructed).
+
+    ``priorState`` is a three-outcome envelope
+    ``{"found": bool | null, "state": {...} | null, "error": str | null}``:
+    ``found=true`` carries the summary, ``found=false`` means the snapshot was
+    confirmed already gone, and ``found=null`` with an ``error`` means the
+    BEFORE-state could not be read — the delete still happened, but there is no
+    record of what it removed. Treat that last case as evidence missing, not as
+    an empty snapshot.
     """
     prior = _find_snapshot(conn, snapshot_id)
     conn.delete(f"/zfs/snapshot/id/{_seg(snapshot_id)}")

@@ -36,8 +36,10 @@ Every MCP tool runs through the bundled `@governed_tool` harness
   `TRUENAS_MAX_TOOL_SECONDS`) plus an on-by-default guard that trips a tight
   poll/retry loop, preventing unbounded API consumption (e.g. polling a slow
   session).
-- **Graduated risk tiers** — `~/.truenas-aiops/rules.yaml` `risk_tiers` gate
-  writes by environment/tag; the highest tiers require a recorded approver.
+- **Risk tier** — a descriptive label on each audit row derived from
+  `risk_level`; it gates nothing. `TRUENAS_AUDIT_APPROVED_BY` /
+  `TRUENAS_AUDIT_RATIONALE` are optional annotations recorded on the row, never
+  required and never blocking.
 - **Undo-token recording** — `snapshot_create` records an inverse
   `snapshot_delete` descriptor so the change can be rolled back.
 

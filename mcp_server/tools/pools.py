@@ -1,8 +1,8 @@
 """ZFS pool MCP tools: list/get/status/scrub-status/capacity + scrub start.
 
 Every tool is wrapped with ``@governed_tool`` (the truenas-aiops harness):
-policy pre-check, budget/runaway guard, graduated-autonomy risk-tier gate,
-audit logging to ~/.truenas-aiops/audit.db, and undo-token recording.
+budget/runaway guard, descriptive risk-tier tagging, audit logging to
+~/.truenas-aiops/audit.db, and undo-token recording.
 """
 
 from typing import Optional

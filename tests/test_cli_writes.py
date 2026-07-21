@@ -53,14 +53,25 @@ def fake_conn(monkeypatch):
 
 
 @pytest.mark.unit
-def test_cli_snapshot_delete_dry_run_makes_no_call_and_no_audit(gov_home, fake_conn):
+def test_cli_snapshot_delete_dry_run_mutates_nothing_but_is_audited(gov_home, fake_conn):
+    """A preview MAY read; it must never write — and it IS audited.
+
+    The old rule ("no call, no audit") was wrong on both halves: it made every
+    guard on the write unreachable from the preview, so the CLI could print a
+    green banner for an operation the real run would refuse. The MCP path has
+    always audited previews (``@governed_tool`` wraps the function regardless
+    of ``dry_run``); the CLI was the outlier.
+    """
     from truenas_aiops.cli import app
 
     result = CliRunner().invoke(app, ["snapshot", "delete", "tank/data@snap1", "--dry-run"])
     assert result.exit_code == 0
     assert "DRY-RUN" in result.output
-    fake_conn.delete.assert_not_called()
-    assert not (gov_home / "audit.db").exists()
+    # Nothing mutating went out — the surviving half of the old assertion.
+    for verb in ("post", "put", "patch", "delete"):
+        assert not getattr(fake_conn, verb).called, f"dry-run issued a {verb.upper()}"
+    # ...and the preview left an audit row, like every other governed call.
+    assert _audit_tools(gov_home / "audit.db") == ["snapshot_delete"]
 
 
 @pytest.mark.unit

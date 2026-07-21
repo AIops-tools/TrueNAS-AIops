@@ -42,6 +42,16 @@ _WARN_LEVELS = {"WARNING"}
 _SEVERITY_RANK = {"critical": 0, "warning": 1, "info": 2}
 
 
+# The three coercers below return None / 0 on unparseable input, and that is
+# deliberate — they are *parsers*, not probes. Their input is a value already
+# fetched by a caller that raises on a failed fetch, so "not a number" here means
+# the middleware really did send something non-numeric (or omitted the field),
+# never that a request failed. None therefore reads correctly as "not
+# computable", matching opt_str's missing-is-null rule. Do not convert these to
+# error envelopes: an envelope per scalar would say nothing a null does not, and
+# the failure they would supposedly report cannot reach them.
+
+
 def _pct(used: Any, total: Any) -> float | None:
     """Percentage used, or None when the total is missing / zero."""
     try:
@@ -55,7 +65,15 @@ def _pct(used: Any, total: Any) -> float | None:
 
 
 def _int(value: Any) -> int:
-    """Coerce to int, treating missing / non-numeric as 0."""
+    """Coerce to int, treating missing / non-numeric as 0.
+
+    Unlike its two neighbours this collapses "absent" into a real value, which
+    is safe *only* because its callers sum ZFS error counters: a vdev that
+    reports no ``read_errors`` key has recorded no read errors, so 0 is the
+    true count rather than a stand-in for unknown. Do not reuse it for a metric
+    where a missing field could mean "not measured" — there, 0 would read as a
+    clean result and hide the gap.
+    """
     try:
         return int(value)
     except (TypeError, ValueError):

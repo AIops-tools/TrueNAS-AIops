@@ -6,7 +6,7 @@
 
 AI-powered **TrueNAS SCALE** storage operations with a **built-in governance
 harness** — unified audit log, policy engine, token/runaway budget guard,
-undo-token recording, and graduated-autonomy risk tiers. Self-contained: no
+undo-token recording, and descriptive risk tiers. Self-contained: no
 external dependencies beyond `httpx` and the MCP SDK. **Mock-validated
 only, not yet verified against a live TrueNAS appliance.**
 
@@ -56,40 +56,24 @@ stop.
 - **Reversibility**: `snapshot_create` records an inverse `snapshot_delete` undo descriptor. The irreversible `snapshot_delete` (`high` risk) captures the snapshot's BEFORE state for the audit record and declares no undo.
 - **Safety**: destructive CLI ops (`snapshot delete`, `service restart`) require double confirmation and support `--dry-run`.
 
-## Security: read-only mode
+## What this tool does, and does not, decide
 
-This tool is meant to be handed to an AI agent, so its safety story is enforced
-by the server rather than requested in a prompt:
+It delivers TrueNAS SCALE storage operations — reads and writes — accurately and
+efficiently, and records every one of them. It does **not** decide whether a
+write is allowed to happen. That is the agent's judgement, or the permission of
+the account you connect it with: scope the TrueNAS API key to a limited-privilege
+account and the writes fail at the appliance — the place that actually owns the
+permission.
 
-```bash
-export TRUENAS_READ_ONLY=1
-```
+So there is no read-only switch, no policy file, no approval gate to configure.
+The one thing the tool guarantees is that nothing is silent: **every call, over
+MCP and over the CLI alike, lands an audit row** in `~/.truenas-aiops/audit.db`,
+and reversible writes still capture their before-state and record an inverse.
 
-With that set, the **6 write tools are never registered**. An MCP client
-lists **19 tools instead of 25** — the writes are not hidden, not
-gated behind a flag, and not merely refused when called. They are absent from
-the session. A model cannot invoke a tool it was never offered, and cannot be
-argued into one.
-
-That distinction is the whole point. A tool that exists but refuses still invites
-retry loops and "I'll describe the call instead" behaviour from smaller models,
-and it leaves a reviewer trusting a promise. An absent tool is a fact you can
-check: connect, list the tools, and see that the writes are not there.
-
-Enforcement is two layers deep, so the switch cannot be sidestepped by changing
-entry point:
-
-| Layer | What it does | Covers |
-|---|---|---|
-| `@governed_tool` harness | refuses every non-read operation outright | MCP, CLI, and in-process callers |
-| MCP registration | write tools are removed from `list_tools()` | anything speaking MCP |
-
-Read operations are unaffected, and every call is still audited to
-`~/.truenas-aiops/audit.db`.
-
-> The read/write split is derived from each tool's declared `risk_level`, and a
-> test asserts that this never disagrees with the `[READ]`/`[WRITE]` tag in the
-> tool's own documentation — so a write can't quietly present itself as a read.
+> Each tool declares a `risk_level`, kept in agreement with its `[READ]`/`[WRITE]`
+> documentation tag by a test, and carried into the audit row as a descriptive
+> tier — so a reviewer can see at a glance that a row was a high-risk delete. It
+> is a label, not a gate.
 
 Running a smaller / local model? See
 [agent-guardrails.md](skills/truenas-aiops/references/agent-guardrails.md) — it lists

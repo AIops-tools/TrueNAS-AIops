@@ -113,8 +113,8 @@ def test_undo_apply_unregistered_inverse_errors(gov_home):
 
 @pytest.mark.unit
 def test_cli_undo_apply_dry_run_renders(gov_home):
-    """The `undo apply --dry-run` CLI path must render without error — guards
-    against dry_run_print signature drift across tools (api_call vs detail)."""
+    """An ordinary preview still renders the normal banner and exits 0 — guards
+    against dry_run_preview signature drift across tools (api_call vs detail)."""
     from typer.testing import CliRunner
 
     from truenas_aiops.cli import app
@@ -123,8 +123,31 @@ def test_cli_undo_apply_dry_run_renders(gov_home):
     result = CliRunner().invoke(app, ["undo", "apply", uid, "--dry-run"])
     assert result.exit_code == 0, result.output
     assert "DRY-RUN" in result.output
+    assert "_undo_probe" in result.output
     assert _CALLS == []
     assert undo_mod.get_undo_store().get(uid)["status"] == "recorded"
+
+
+@pytest.mark.unit
+def test_cli_undo_apply_dry_run_refusal_exits_nonzero_without_banner(gov_home):
+    """A REFUSED preview prints the teaching message and exits non-zero.
+
+    A genuine, unmocked refusal: an unknown undo id. Before the reroute this
+    result was rendered with dry_run_print, which has no error branch — the
+    refusal dict fell through ``.get('wouldApply', {})`` and printed a GREEN
+    banner reading "inverse: ?" with exit code 0. A weak model reads that as
+    "preview fine, the write will work", then reads the eventual refusal as
+    transient and retries.
+    """
+    from typer.testing import CliRunner
+
+    from truenas_aiops.cli import app
+
+    result = CliRunner().invoke(app, ["undo", "apply", "deadbeef", "--dry-run"])
+    assert result.exit_code == 1, result.output
+    assert "Unknown undo id" in result.output
+    assert "DRY-RUN" not in result.output
+    assert _CALLS == []
 
 
 @pytest.mark.unit
