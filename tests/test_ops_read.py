@@ -112,7 +112,9 @@ def test_list_disks_endpoint_and_summary():
         }
     ]
     rows = disk_ops.list_disks(conn)
-    conn.get.assert_called_once_with("/disk")
+    # `pool` is only populated with extra.pools; a plain GET returns null for
+    # every disk on a real appliance (TrueNAS 25.04.2.1).
+    conn.get.assert_called_once_with("/disk", params={"extra.pools": "true"})
     assert rows[0] == {
         "name": "sda",
         "serial": "ABC123",
@@ -477,9 +479,7 @@ def test_health_overview_flags_near_full_and_unhealthy():
                 {"service": "smb", "state": "RUNNING"},
                 {"service": "nfs", "state": "STOPPED"},
             ]
-        return []
-
-    def _post(path, **kw):
+        # /alert/list is a GET in the v2.0 REST API — POSTing it 405s for real
         if path == "/alert/list":
             return [
                 {"id": "a", "level": "CRITICAL"},
@@ -489,7 +489,6 @@ def test_health_overview_flags_near_full_and_unhealthy():
         return []
 
     conn.get.side_effect = _get
-    conn.post.side_effect = _post
 
     data = ov_ops.health_overview(conn)
 
@@ -569,12 +568,13 @@ def test_delete_snapshot_prior_state_absent_when_confirmed_gone():
 @pytest.mark.unit
 def test_health_overview_alerts_partial_failure_isolated():
     conn = MagicMock(name="conn")
-    conn.get.return_value = []
 
-    def _post(path, **kw):
-        raise RuntimeError("alert boom")
+    def _get(path, **kw):
+        if path == "/alert/list":
+            raise RuntimeError("alert boom")
+        return []
 
-    conn.post.side_effect = _post
+    conn.get.side_effect = _get
     data = ov_ops.health_overview(conn)
     assert "error" in data["alerts"]
     assert data["pools"]["total"] == 0
@@ -634,3 +634,34 @@ def test_probe_helpers_keep_absent_and_failed_distinguishable():
     # The discriminator a consumer actually reads must differ across all three.
     outcomes = [probe_found({})["found"], probe_absent()["found"], failed["found"]]
     assert len(set(map(repr, outcomes))) == 3
+
+
+# --------------------------------------------------------------------------- #
+# Live-found regressions (real TrueNAS SCALE 25.04.2.1, 2026-08-01)
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_list_alerts_uses_get_not_post():
+    """`/alert/list` is a GET in the v2.0 REST API. POSTing it returns
+    405 Method Not Allowed on a real appliance, so alerts never loaded and the
+    whole alerts section of `overview` degraded to an error."""
+    from truenas_aiops.ops import alerts as alert_ops
+
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [{"id": "a1", "level": "CRITICAL", "formatted": "x"}]
+    rows = alert_ops.list_alerts(conn)
+    conn.get.assert_called_once_with("/alert/list")
+    conn.post.assert_not_called()
+    assert rows[0]["level"] == "CRITICAL"
+
+
+@pytest.mark.unit
+def test_list_disks_requests_the_pools_extra():
+    """TrueNAS only fills a disk's `pool` when `extra.pools` is requested; a
+    plain GET /disk returns pool=null for EVERY disk, making an in-use disk
+    indistinguishable from an unassigned spare."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [{"name": "sdb", "pool": "tank"}]
+    rows = disk_ops.list_disks(conn)
+    _, kwargs = conn.get.call_args
+    assert kwargs.get("params", {}).get("extra.pools") == "true"
+    assert rows[0]["pool"] == "tank"

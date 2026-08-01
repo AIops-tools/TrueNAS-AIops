@@ -3,10 +3,55 @@
 This document records what has and has not been validated against a real
 TrueNAS SCALE appliance, so the maturity claim is auditable.
 
-## Current status ⚠️ mock-only — endpoint paths are modelled, not confirmed
+## ✅ Live-verified against real TrueNAS SCALE 25.04.2.1 (2026-08-01)
 
-`truenas-aiops` has **not** been validated against a live TrueNAS SCALE
-appliance. Beyond the usual mock-only caveat there is a specific, substantive
+Verified end-to-end against a real TrueNAS SCALE 25.04.2.1 appliance (nested-KVM
+lab, real ZFS mirror pool), driven through the real governed CLI + API-key path,
+with every read cross-checked against the appliance's own API. **Two real bugs,
+both of which broke the feature outright on any real appliance:**
+
+1. **🔴 Alerts never loaded — `/alert/list` was called with POST.** It is a
+   **GET** in the v2.0 REST API; POST returns `405 Method Not Allowed`. Because
+   alerts are a read, the whole alerts section of `overview` degraded to an
+   `error` envelope on every appliance. Fixed; `overview` now reports real
+   alerts (verified: 1 INFO "system update available").
+2. **🔴 Every disk reported `pool: null`.** TrueNAS only populates a disk's
+   `pool` when `extra.pools` is requested; a plain `GET /disk` returns null for
+   every disk, including ones in a pool — making an in-use disk
+   indistinguishable from an unassigned spare, which is the exact question the
+   read exists to answer. Fixed; now reports `sda→boot-pool`, `sdb/sdc→tank`.
+
+**Endpoint audit** — every path the tool calls was probed against the live
+appliance. All reads (`/system/info`, `/pool`, `/pool/dataset`, `/zfs/snapshot`,
+`/disk`, `/service`, `/replication`, `/cloudsync`, `/smart/test/results`,
+`/alert/list`) return 200 with the modelled shapes; the only verb error was the
+alert POST above.
+
+**Live loop that passed:** `doctor` (connects, and correctly warns REST is
+deprecated in 25.04 / removed in 26) · `system` · `pool list` (tank ONLINE,
+free matches) · `dataset list` · `disk list` · `alert list` · `overview` · and a
+full **write → audit → undo → verified restore**: `snapshot create tank@aiopssnap`
+→ appliance snapshot count 7→8 → `undo apply` → `snapshot_delete`,
+`effectVerified: true`, count back to 7 and the snapshot gone. Every governed
+write landed an audit row.
+
+Not covered: multi-disk failure/degraded-pool RCA, S.M.A.R.T. on real failing
+media, replication/cloudsync against real targets, and the **WebSocket JSON-RPC
+transport TrueNAS 26 requires** (this tool still speaks REST — see below).
+
+> **Lab recipe:** TrueNAS ships no answerfile, so the ncurses installer must be
+> driven. Two things were mandatory: **UEFI with Secure Boot OFF** (Ubuntu's
+> default OVMF rejects TrueNAS's bootloader with `BdsDxe: ... Access Denied`,
+> and on SeaBIOS the kernel emitted nothing at all), and a **grub.cfg patched in
+> place on the ISO** to default to the serial entry (the ISO cannot be rebuilt —
+> hybrid MBR/GPT — and GRUB's serial menu ignores the `--hotkey`). The password
+> screen is one form with two fields, so the wizard needs `pw <Tab> pw <Enter>`.
+
+---
+
+## Historical status (superseded by the run above)
+
+Beyond the usual mock-only caveat there was a specific, substantive
 risk worth stating plainly:
 
 > The REST endpoint paths are **modelled against the documented TrueNAS SCALE

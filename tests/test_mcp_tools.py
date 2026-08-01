@@ -125,7 +125,8 @@ def test_replication_and_service_and_system_read(gov_home, monkeypatch):
 @pytest.mark.unit
 def test_alert_and_overview_read(gov_home, monkeypatch):
     conn = MagicMock(name="conn")
-    conn.post.return_value = [{"id": "a1", "level": "CRITICAL", "formatted": "disk bad"}]
+    # /alert/list is a GET in the v2.0 REST API (POST 405s on a real appliance)
+    conn.get.return_value = [{"id": "a1", "level": "CRITICAL", "formatted": "disk bad"}]
     _patch_conn(monkeypatch, alert_tools, conn)
     assert alert_tools.alert_list()[0]["level"] == "CRITICAL"
 

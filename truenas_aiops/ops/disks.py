@@ -26,8 +26,16 @@ def _disk_summary(disk: dict) -> dict:
 
 
 def list_disks(conn: Any) -> list[dict]:
-    """[READ] List physical disks with name, serial, model, size, pool."""
-    return [_disk_summary(d) for d in as_list(conn.get("/disk"))]
+    """[READ] List physical disks with name, serial, model, size, pool.
+
+    ``pool`` is only populated when ``extra.pools`` is requested; a plain
+    ``GET /disk`` returns ``pool: null`` for EVERY disk, including ones that are
+    part of a pool (verified against TrueNAS SCALE 25.04.2.1, 2026-08-01). That
+    made an in-use disk indistinguishable from an unassigned spare — the exact
+    question this read exists to answer.
+    """
+    return [_disk_summary(d)
+            for d in as_list(conn.get("/disk", params={"extra.pools": "true"}))]
 
 
 def smart_test_results(conn: Any) -> list[dict]:

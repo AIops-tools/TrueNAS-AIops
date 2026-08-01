@@ -212,22 +212,29 @@ def test_pool_health_rca_is_governed_and_collects_pool_listing(gov_home, monkeyp
 def test_alert_and_capacity_rca_is_governed_and_collects_both(gov_home, monkeypatch):
     assert diag_tools.alert_and_capacity_rca._is_governed_tool is True
     conn = MagicMock(name="conn")
-    conn.post.return_value = [
-        {"id": "a1", "level": "CRITICAL", "formatted": "disk failed", "dismissed": False},
-    ]
-    conn.get.return_value = [
-        {
-            "name": "tank/data",
-            "used": {"parsed": 95},
-            "quota": {"parsed": 100},
-            "available": {"parsed": 5},
-        },
-    ]
+    # Both alerts and datasets are GETs; dispatch on path so each read gets its
+    # own payload (/alert/list is a GET — POSTing it 405s on a real appliance).
+    def _get(path, **kw):
+        if path == "/alert/list":
+            return [
+                {"id": "a1", "level": "CRITICAL", "formatted": "disk failed",
+                 "dismissed": False},
+            ]
+        return [
+            {
+                "name": "tank/data",
+                "used": {"parsed": 95},
+                "quota": {"parsed": 100},
+                "available": {"parsed": 5},
+            },
+        ]
+
+    conn.get.side_effect = _get
     monkeypatch.setattr(diag_tools, "_get_connection", lambda target=None: conn)
 
     result = diag_tools.alert_and_capacity_rca()
-    conn.post.assert_called_once_with("/alert/list")
-    conn.get.assert_called_once_with("/pool/dataset")
+    conn.get.assert_any_call("/alert/list")
+    conn.get.assert_any_call("/pool/dataset")
     assert result["alertsAnalyzed"] == 1
     assert result["datasetsAnalyzed"] == 1
     # one critical alert + one critical dataset, both surfaced

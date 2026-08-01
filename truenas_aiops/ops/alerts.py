@@ -28,5 +28,11 @@ def _alert_summary(alert: dict) -> dict:
 
 
 def list_alerts(conn: Any) -> list[dict]:
-    """[READ] List active TrueNAS alerts with level, message, class, dismissed."""
-    return [_alert_summary(a) for a in as_list(conn.post("/alert/list"))]
+    """[READ] List active TrueNAS alerts with level, message, class, dismissed.
+
+    ``/alert/list`` is a GET in the v2.0 REST API. POSTing it returns
+    ``405 Method Not Allowed`` on a real appliance (verified against TrueNAS
+    SCALE 25.04.2.1, 2026-08-01), so alerts never loaded — and because this is a
+    read, the whole alerts section of ``overview`` degraded to an error.
+    """
+    return [_alert_summary(a) for a in as_list(conn.get("/alert/list"))]
