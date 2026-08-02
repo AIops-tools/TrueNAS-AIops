@@ -123,7 +123,8 @@ swaps what sits behind it.
 **Still open**: TrueNAS 26 deprecates `auth.login_with_api_key` for
 `auth.login_ex`; the transport tries `login_ex` first and falls back, but only
 the fallback path has been exercised against a live appliance (25.04 has no
-`login_ex`). **Upgrading an appliance to 26 revokes existing API keys** — expect
+`login_ex`). **Upstream documents that upgrading to 26 revokes existing API keys**
+— reported, NOT reproduced by us; expect
 to mint a new one.
 
 ## 🔴 Round 2 — degraded-pool RCA (2026-08-02): two real bugs

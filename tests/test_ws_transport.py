@@ -264,11 +264,13 @@ def test_without_a_username_the_deprecated_method_is_used_and_warned_about(
 
 
 @pytest.mark.unit
-def test_a_rejected_key_says_that_upgrading_to_26_revokes_keys(monkeypatch):
+def test_a_rejected_key_points_at_the_likeliest_cause(monkeypatch):
+    """The error names the upstream-reported key revocation on upgrade — stated
+    as reported, not as something we measured: we have never reproduced it."""
     monkeypatch.setenv("TRUENAS_TN_APIKEY", "k-123")
     ws = _FakeWs({"auth.login_with_api_key": {"result": False}})
     conn = TrueNASWsConnection(_target(), client=ws)
-    with pytest.raises(TrueNASWsError, match="REVOKES existing keys"):
+    with pytest.raises(TrueNASWsError, match="revoking existing keys"):
         conn.get("/system/info")
 
 

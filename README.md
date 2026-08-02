@@ -41,8 +41,10 @@ targets:
 the appliance offers it, the tool uses it; otherwise it falls back to REST,
 which is still correct on 25.10 and older.
 
-**Upgrading to TrueNAS 26 revokes existing API keys** — mint a new one after the
-upgrade. That is an iXsystems change, not a tool limitation.
+**iXsystems documents that upgrading to TrueNAS 26 revokes existing API keys** —
+so expect to mint a new one after the upgrade. *We have not reproduced this
+ourselves*; it is reported here from the upstream release notes, not from a
+verified upgrade. Treat it as a caution, not a measurement.
 
 `truenas-aiops doctor` tells you which transport the connection actually used,
 reads the server version, and — on REST — says plainly whether REST is
@@ -163,7 +165,8 @@ as a fallback with a deprecation warning (migrate with `truenas-aiops secret mig
 Versions: **TrueNAS SCALE 25.04 and newer over JSON-RPC/WebSocket, and any build
 still serving REST v2.0 over REST** — the transport is selected automatically.
 See [Supported TrueNAS versions](#supported-truenas-versions--and-which-api-you-are-speaking).
-Note that upgrading an appliance to TrueNAS 26 **revokes existing API keys**.
+Note that iXsystems documents an upgrade to TrueNAS 26 as **revoking existing
+API keys** (upstream claim, not reproduced here).
 
 Read: system info, ZFS pools (list/get/status/scrub-status/capacity), datasets
 (list/get), snapshots (list), disks + S.M.A.R.T. results, alerts, services,

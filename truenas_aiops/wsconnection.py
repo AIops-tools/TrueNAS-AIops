@@ -308,9 +308,10 @@ class TrueNASWsConnection:
         correct there today — it is simply on a clock. Setting ``username`` moves
         the target onto ``login_ex`` on **either** release.
 
-        Note that **upgrading an appliance to TrueNAS 26 revokes existing API
-        keys**; a rejection here is far more likely to be a revoked key than a
-        protocol problem.
+        Upstream documents an upgrade to TrueNAS 26 as revoking existing API keys
+        (their release notes — we have not reproduced it). If that holds, a
+        rejection here is far more likely to be a revoked key than a protocol
+        problem.
         """
         if self._authenticated:
             return
@@ -329,7 +330,7 @@ class TrueNASWsConnection:
                 f"TrueNAS rejected the API key for user '{username}' "
                 f"(auth.login_ex: {detail}). Check that the key belongs to that "
                 f"account and that 'username' in config.yaml matches it. Note "
-                f"that upgrading an appliance to TrueNAS 26 REVOKES existing keys.")
+                f"that upstream reports an upgrade to TrueNAS 26 as revoking existing keys.")
 
         _log.warning(
             "No 'username' configured for target %r, so the deprecated "
@@ -346,7 +347,7 @@ class TrueNASWsConnection:
             f"TrueNAS rejected the API key over the WebSocket transport "
             f"(auth.login_with_api_key returned {result!r}). Create a new key "
             f"(Credentials → API Keys) and set 'username' in config.yaml; note "
-            f"that upgrading an appliance to TrueNAS 26 REVOKES existing keys.")
+            f"that upstream reports an upgrade to TrueNAS 26 as revoking existing keys.")
 
     # ── JSON-RPC ─────────────────────────────────────────────────────────
 
