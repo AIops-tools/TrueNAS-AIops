@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.1 — 2026-08-02
+
+### Fixed
+- **Docs claimed the tool had never been run against a real appliance.** The skill description, the installer notes, and all three reference guides still said "mock-validated only, not yet verified against a live appliance" — the text published to the skill registries — while reads, governed writes with audit and undo, the WebSocket transport, degraded-pool RCA, replication and cloud-sync had all been exercised against live TrueNAS SCALE 25.04 and 26 appliances. They now point at `docs/VERIFICATION.md`, which records what was checked and what is still open (real S.M.A.R.T. on failing media).
+
 ## v0.8.0 — 2026-08-02
 
 ### Fixed

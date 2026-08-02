@@ -10,7 +10,7 @@ description: >
   Use this skill whenever the user needs to operate TrueNAS SCALE storage — a one-shot health overview, system info, read-only diagnostics / RCA (pool health, alerts & dataset capacity), inspect ZFS pools (list/get/status, capacity, scrub status, start a scrub), datasets (list/get/create), snapshots (list/create/delete), physical disks and S.M.A.R.T. self-test results, system alerts, services (list/restart), and replication / cloud-sync tasks.
   Always use this skill for "list truenas pools", "truenas dataset", "create zfs snapshot", "start a scrub", "diagnose truenas pool health", "why is my pool degraded", "truenas disk health", "truenas smart test", "truenas alerts", "restart truenas service", or "truenas replication" when the context is explicitly TrueNAS / TrueNAS SCALE / a ZFS NAS appliance.
   Do NOT use when the target is not a TrueNAS SCALE appliance — other NAS/storage products, backup software, hypervisor VM lifecycle, container clusters, and network devices are out of scope (negative routing hints only).
-  Common TrueNAS SCALE operations with a built-in governance harness (audit, policy, token budget, undo, risk-tiers). Mock-validated only, not yet verified against a live appliance.
+  Common TrueNAS SCALE operations with a built-in governance harness (audit, policy, token budget, undo, risk-tiers). Live-verified against real TrueNAS SCALE 25.04 and 26 appliances over both transports; see docs/VERIFICATION.md for what is and is not covered.
 installer:
   kind: uv
   package: truenas-aiops
@@ -26,7 +26,7 @@ compatibility: >
   Webhooks: none — no outbound network calls beyond the configured TrueNAS REST API endpoint.
   SSL: verify_ssl defaults to true; disable only for self-signed lab certificates.
   Transitive dependencies: httpx (HTTP client) and the MCP SDK. No post-install scripts or background services.
-  Mock-validated only; endpoint paths modelled against the documented TrueNAS SCALE REST v2.0 API need live verification.
+  Routes are resolved against the appliance's own method list and were cross-checked on live 25.04 and 26 appliances; S.M.A.R.T. on failing media remains unverified (see docs/VERIFICATION.md).
 ---
 
 # TrueNAS AIops
@@ -35,7 +35,7 @@ compatibility: >
 
 Governed TrueNAS SCALE storage operations — **25 MCP tools**, every one wrapped with the bundled `@governed_tool` harness: a local unified audit log under `~/.truenas-aiops/`, policy engine, token/runaway budget guard, undo-token recording, and descriptive risk tiers. The TrueNAS API key is stored **encrypted** (`~/.truenas-aiops/secrets.enc`, Fernet + scrypt) — never plaintext on disk.
 
-> **Standalone**: the governance harness is bundled in the package (`truenas_aiops.governance`) — truenas-aiops has no external skill-family dependency. **Mock-validated only**: coverage focuses on common TrueNAS operations, is not yet exhaustive, and is not yet validated against a live appliance.
+> **Standalone**: the governance harness is bundled in the package (`truenas_aiops.governance`) — truenas-aiops has no external skill-family dependency. **Verification**: coverage focuses on common TrueNAS operations and is not exhaustive, but it is no longer mock-only — reads, governed writes with audit + undo, the WebSocket transport, degraded-pool RCA, replication and cloud-sync have all been exercised against live TrueNAS SCALE 25.04 and 26 appliances. `docs/VERIFICATION.md` records exactly what was checked and what is still open.
 
 ## What This Skill Does
 
@@ -214,7 +214,7 @@ The harness is bundled in the package — no external dependency, no manual setu
 
 ## Contributing & feature requests
 
-Coverage is intentionally focused and **mock-validated only**. **Missing a capability you need, or hit an endpoint that needs fixing for your TrueNAS version?** Open an issue or pull request at [github.com/AIops-tools/TrueNAS-AIops](https://github.com/AIops-tools/TrueNAS-AIops/issues) — feature requests, contributions, and comments are all welcome.
+Coverage is intentionally focused, and what has actually been verified against live appliances is recorded in `docs/VERIFICATION.md`. **Missing a capability you need, or hit an endpoint that needs fixing for your TrueNAS version?** Open an issue or pull request at [github.com/AIops-tools/TrueNAS-AIops](https://github.com/AIops-tools/TrueNAS-AIops/issues) — feature requests, contributions, and comments are all welcome.
 
 ## License
 

@@ -1,6 +1,7 @@
 # truenas-aiops setup & security guide
 
-> Mock-validated only — not yet validated against a live TrueNAS SCALE appliance.
+> Validated against live TrueNAS SCALE 25.04 and 26 appliances; docs/VERIFICATION.md
+> records exactly what was checked.
 
 ## 1. Install
 

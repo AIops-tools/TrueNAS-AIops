@@ -1,7 +1,8 @@
 # truenas-aiops capabilities
 
-> Mock-validated only. 25 MCP tools (19 read, 6 write). Endpoint paths modelled
-> against the documented TrueNAS SCALE REST v2.0 API; need live verification.
+> 25 MCP tools (19 read, 6 write). Routes are resolved against the appliance's
+> own method list and were cross-checked on live TrueNAS SCALE 25.04 and 26
+> appliances; see docs/VERIFICATION.md for what remains unverified.
 
 ## Read tools (19)
 

@@ -1,7 +1,7 @@
 # truenas-aiops CLI reference
 
-> Mock-validated only. Endpoint paths are modelled against the documented
-> TrueNAS SCALE REST v2.0 API and need live verification.
+> Exercised against live TrueNAS SCALE 25.04 and 26 appliances over both the
+> REST and WebSocket transports; see docs/VERIFICATION.md for the gaps.
 
 ## Setup & diagnostics
 
