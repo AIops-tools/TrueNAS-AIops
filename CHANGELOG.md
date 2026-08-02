@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0 — 2026-08-02
 
 ### Fixed
 - **A replication task's state is read from the task, not from the generic job.** `list_replication` reported `job.state`, which is wrong twice over: `job` does not exist until a run has been triggered in the middleware's current lifetime — so a task the appliance plainly calls `PENDING` came back as `null` — and when it does exist it speaks the job vocabulary (`SUCCESS`/`FAILED`) rather than the replication one (`PENDING`/`RUNNING`/`FINISHED`/`ERROR`), so no reported value ever matched what the appliance and its UI show. Verified against a live TrueNAS SCALE 25.04.2.1 pair replicating over SSH, in all three states. `list_cloudsync` is deliberately unchanged: a cloud-sync record carries **no** top-level state at all, so the job record really is its only outcome signal — verified on the same appliance with a real S3 task.

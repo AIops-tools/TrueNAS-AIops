@@ -23,8 +23,8 @@
 | `smart_test_results` | `GET /smart/test/results` | latest S.M.A.R.T. self-test per disk |
 | `alert_list` | `POST /alert/list` | level, message, class, dismissed |
 | `service_list` | `GET /service` | name, state (RUNNING/STOPPED), enable |
-| `replication_list` | `GET /replication` | name, direction, transport, state |
-| `cloudsync_list` | `GET /cloudsync` | description, direction, path, state |
+| `replication_list` | `GET /replication` | name, direction, transport, state (PENDING/RUNNING/FINISHED/ERROR, never absent), error, lastSnapshot, lastRun |
+| `cloudsync_list` | `GET /cloudsync` | description, direction, path, state (the last run's job state; null until it runs) |
 | `undo_list` | governance store | recorded reversible writes / not-yet-applied undo tokens |
 
 ## Write tools (6)
