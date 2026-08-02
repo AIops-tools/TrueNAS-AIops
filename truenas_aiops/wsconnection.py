@@ -75,25 +75,26 @@ class UnmappedEndpoint(TrueNASWsError):  # noqa: N818 — teaching error, reads 
     """
 
 
-def _route_pool_by_id(pool_id: str, _params: dict) -> tuple[str, list]:
+def _route_pool_by_id(pool_id: str, _params: dict) -> tuple:
     """One pool by id **or** name, mirroring the REST reader's tolerance."""
     ident = unquote(pool_id)
     field = "id" if ident.isdigit() else "name"
     value: Any = int(ident) if ident.isdigit() else ident
-    return "pool.query", [[[field, "=", value]], {"get": True}]
+    return (("pool.query", [[[field, "=", value]], {"get": True}]),)
 
 
-def _route_dataset_by_id(dataset_id: str, _params: dict) -> tuple[str, list]:
+def _route_dataset_by_id(dataset_id: str, _params: dict) -> tuple:
     """One dataset by its ZFS name (``tank/data``)."""
-    return "pool.dataset.query", [[["id", "=", unquote(dataset_id)]], {"get": True}]
+    return (("pool.dataset.query", [[["id", "=", unquote(dataset_id)]], {"get": True}]),)
 
 
-def _route_snapshot_delete(snapshot_id: str, _params: dict) -> tuple[str, list]:
+def _route_snapshot_delete(snapshot_id: str, _params: dict) -> tuple:
     """Delete one snapshot by its ``dataset@name`` id."""
-    return "zfs.snapshot.delete", [unquote(snapshot_id)]
+    sid = unquote(snapshot_id)
+    return (("pool.snapshot.delete", [sid]), ("zfs.snapshot.delete", [sid]))
 
 
-def _route_disks(_params: dict) -> tuple[str, list]:
+def _route_disks(_params: dict) -> tuple:
     """Disk listing, carrying the pool membership the REST reader asks for.
 
     ``extra.pools`` is a REST query parameter; over JSON-RPC the same request is
@@ -101,23 +102,30 @@ def _route_disks(_params: dict) -> tuple[str, list]:
     — including ones in a pool — so this is not cosmetic (it was a live bug on
     the REST side too).
     """
-    return "disk.query", [[], {"extra": {"pools": True}}]
+    return (("disk.query", [[], {"extra": {"pools": True}}]),)
 
 
-#: ``(verb, path)`` → middleware method. Static routes map to a method name and
-#: fixed params; ``{id}`` routes map to a builder that receives the raw (still
-#: percent-encoded) segment and the REST query params.
-_ROUTES: dict[tuple[str, str], tuple[str, list]] = {
-    ("GET", "/system/info"): ("system.info", []),
-    ("GET", "/pool"): ("pool.query", []),
-    ("GET", "/pool/dataset"): ("pool.dataset.query", []),
-    ("GET", "/zfs/snapshot"): ("zfs.snapshot.query", []),
-    ("GET", "/service"): ("service.query", []),
-    ("GET", "/replication"): ("replication.query", []),
-    ("GET", "/cloudsync"): ("cloudsync.query", []),
-    ("GET", "/smart/test/results"): ("smart.test.results", []),
+#: ``(verb, path)`` → **candidate** middleware methods, best first.
+#:
+#: Candidates, not one name, because **the middleware renames methods between
+#: releases**. Verified by running the same table against a real 25.04.2.1 and a
+#: real 26.0.0-BETA.2: snapshots moved ``zfs.snapshot.*`` → ``pool.snapshot.*``
+#: (each namespace exists on exactly one of the two), ``service.restart`` became
+#: ``service.control``, and ``smart.test.results`` was removed with no
+#: replacement at all. Pinning either release's names ships a transport that is
+#: broken on the other — bug class #7, and the reason this list is resolved
+#: against the appliance's own ``core.get_methods`` rather than assumed.
+_ROUTES: dict[tuple[str, str], tuple[tuple[str, list], ...]] = {
+    ("GET", "/system/info"): (("system.info", []),),
+    ("GET", "/pool"): (("pool.query", []),),
+    ("GET", "/pool/dataset"): (("pool.dataset.query", []),),
+    ("GET", "/zfs/snapshot"): (("pool.snapshot.query", []), ("zfs.snapshot.query", [])),
+    ("GET", "/service"): (("service.query", []),),
+    ("GET", "/replication"): (("replication.query", []),),
+    ("GET", "/cloudsync"): (("cloudsync.query", []),),
+    ("GET", "/smart/test/results"): (("smart.test.results", []),),
     # /alert/list is a GET in REST v2.0 (POSTing it 405s — a real live bug once).
-    ("GET", "/alert/list"): ("alert.list", []),
+    ("GET", "/alert/list"): (("alert.list", []),),
 }
 
 #: Routes whose path carries an id, matched by prefix. Ordered longest-first so
@@ -128,18 +136,9 @@ _ID_ROUTES: list[tuple[str, str, Any]] = [
     ("DELETE", "/zfs/snapshot/id/", _route_snapshot_delete),
 ]
 
-#: Writes. Each takes the REST body the ops layer sends and returns the JSON-RPC
-#: params.
-#:
-#: The body keys here are NOT a guess — they are the keys
-#: :mod:`truenas_aiops.ops` actually posts, and a mismatch is invisible over
-#: REST (which forwards the body verbatim) while breaking the operation over
-#: WebSocket. That is not hypothetical: this table first read ``body["pool"]``
-#: for a scrub while ops sends ``{"name": ...}``, so every scrub reached the
-#: middleware as ``pool.scrub.run(None, 35)`` and was rejected. Positional
-#: arities were read from the appliance's own ``core.get_methods`` schema
-#: (``pool.scrub.run(name, threshold)``, ``service.restart(service,
-#: service-control)``), not inferred from the REST shape.
+#: Writes. Each entry is a tuple of candidates; each candidate builds its own
+#: params, because a renamed method often takes a different shape too
+#: (``service.restart(service)`` vs ``service.control(verb, service)``).
 _SCRUB_DEFAULT_THRESHOLD = 35
 
 
@@ -162,18 +161,31 @@ def _require(body: Any, key: str, method: str) -> Any:
 
 
 _WRITE_ROUTES: dict[tuple[str, str], Any] = {
-    ("POST", "/pool/dataset"): lambda body: ("pool.dataset.create", [body or {}]),
-    ("POST", "/zfs/snapshot"): lambda body: ("zfs.snapshot.create", [body or {}]),
-    ("POST", "/pool/scrub/run"): lambda body: ("pool.scrub.run", [
-        _require(body, "name", "pool.scrub.run"),
-        (body or {}).get("threshold", _SCRUB_DEFAULT_THRESHOLD)]),
-    ("POST", "/service/restart"): lambda body: ("service.restart", [
-        _require(body, "service", "service.restart")]),
+    ("POST", "/pool/dataset"): lambda body: (
+        ("pool.dataset.create", [body or {}]),
+    ),
+    ("POST", "/zfs/snapshot"): lambda body: (
+        ("pool.snapshot.create", [body or {}]),
+        ("zfs.snapshot.create", [body or {}]),
+    ),
+    ("POST", "/pool/scrub/run"): lambda body: (
+        ("pool.scrub.run", [_require(body, "name", "pool.scrub.run"),
+                            (body or {}).get("threshold", _SCRUB_DEFAULT_THRESHOLD)]),
+    ),
+    ("POST", "/service/restart"): lambda body: (
+        # TrueNAS 26 replaced service.restart with service.control(verb, service).
+        ("service.control", ["RESTART", _require(body, "service", "service.control")]),
+        ("service.restart", [_require(body, "service", "service.restart")]),
+    ),
 }
 
 
-def _resolve(method: str, path: str, params: dict, body: Any) -> tuple[str, list]:
-    """Translate one REST call into ``(middleware_method, params)``."""
+def _resolve(method: str, path: str, params: dict, body: Any) -> tuple:
+    """Translate one REST call into candidate ``(middleware_method, params)``.
+
+    Returns candidates best-first; the connection picks the one this appliance
+    actually implements.
+    """
     verb = method.upper()
     clean = path.split("?", 1)[0].rstrip("/") or "/"
 
@@ -182,7 +194,7 @@ def _resolve(method: str, path: str, params: dict, body: Any) -> tuple[str, list
 
     static = _ROUTES.get((verb, clean))
     if static is not None:
-        return static[0], list(static[1])
+        return static
 
     for route_verb, prefix, builder in _ID_ROUTES:
         if verb == route_verb and clean.startswith(prefix):
@@ -220,6 +232,7 @@ class TrueNASWsConnection:
         # Treating injection as pre-authenticated would mean a real caller
         # that supplies its own connection silently never authenticates.
         self._authenticated = False
+        self._method_cache: set[str] | None = None
 
     # ── connection ───────────────────────────────────────────────────────
 
@@ -266,40 +279,74 @@ class TrueNASWsConnection:
         return self._client
 
     def _authenticate(self) -> None:
-        """Log the connection in, preferring the mechanism TrueNAS 26 keeps.
+        """Log the connection in, using the mechanism the target can actually use.
 
-        26 deprecates ``auth.login_with_api_key`` in favour of ``auth.login_ex``,
-        while 25.04 serves the older one — so try the newer first and fall back.
-        Note that **upgrading an appliance to 26 revokes existing API keys**; a
-        transport error here is far more likely to be a revoked key than a
+        TrueNAS deprecates ``auth.login_with_api_key`` in favour of
+        ``auth.login_ex``, which **both 25.04 and 26 serve** (verified on real
+        appliances of each — an earlier note here claiming 25.04 lacks it was
+        wrong). But ``login_ex`` with ``API_KEY_PLAIN`` **requires the owning
+        username**: on 26.0.0-BETA.2, ``username=""`` returns ``AUTH_ERR`` while
+        the same key with ``username="truenas_admin"`` returns ``SUCCESS``. The
+        key itself does not carry the username, so it cannot be derived.
+
+        That makes "try the new one, fall back to the old one" the wrong shape.
+        With no ``username`` configured, ``login_ex`` **cannot** succeed, so
+        attempting it would only produce a guaranteed failure whose fallback
+        silently rescues it — the tool would look future-proof while in fact
+        depending entirely on a deprecated method, and would break with an opaque
+        ``AUTH_ERR`` the day iXsystems removes it. So:
+
+        * ``username`` set → use ``login_ex``. If it fails, that is a **real
+          credential error** and is reported, not papered over by a fallback that
+          would mask a wrong username.
+        * ``username`` unset → use ``login_with_api_key`` and warn, because that
+          is the deprecated path and the operator can fix it by setting
+          ``username`` in ``config.yaml``.
+
+        ``login_with_api_key`` still exists on 26 (it answers ``false`` for a bad
+        key rather than "method not found"), so the no-username path remains
+        correct there today — it is simply on a clock. Setting ``username`` moves
+        the target onto ``login_ex`` on **either** release.
+
+        Note that **upgrading an appliance to TrueNAS 26 revokes existing API
+        keys**; a rejection here is far more likely to be a revoked key than a
         protocol problem.
         """
         if self._authenticated:
             return
         key = self._target.api_key
-        attempts = [
-            ("auth.login_ex", [{"mechanism": "API_KEY_PLAIN",
-                                "username": getattr(self._target, "username", "") or "",
-                                "api_key": key}]),
-            ("auth.login_with_api_key", [key]),
-        ]
-        last = ""
-        for method, params in attempts:
-            try:
-                result = self._rpc(method, params)
-            except TrueNASWsError as exc:
-                last = str(exc)
-                continue
-            if result is True or (isinstance(result, dict)
-                                  and result.get("response_type") == "SUCCESS"):
+        username = (getattr(self._target, "username", "") or "").strip()
+
+        if username:
+            result = self._rpc("auth.login_ex", [{
+                "mechanism": "API_KEY_PLAIN", "username": username, "api_key": key}])
+            if isinstance(result, dict) and result.get("response_type") == "SUCCESS":
                 self._authenticated = True
                 return
-            last = f"{method} returned {result!r}"
-        raise TrueNASWsError(
-            f"TrueNAS rejected the API key over the WebSocket transport. {last}. "
-            f"Create a new key (Credentials → API Keys); note that upgrading an "
-            f"appliance to TrueNAS 26 REVOKES existing keys.",
+            detail = (result.get("response_type")
+                      if isinstance(result, dict) else repr(result))
+            raise TrueNASWsError(
+                f"TrueNAS rejected the API key for user '{username}' "
+                f"(auth.login_ex: {detail}). Check that the key belongs to that "
+                f"account and that 'username' in config.yaml matches it. Note "
+                f"that upgrading an appliance to TrueNAS 26 REVOKES existing keys.")
+
+        _log.warning(
+            "No 'username' configured for target %r, so the deprecated "
+            "auth.login_with_api_key is used. TrueNAS 26 replaced it with "
+            "auth.login_ex, which requires the owning username — set 'username' "
+            "in config.yaml to move off the deprecated path.",
+            self._target.name,
         )
+        result = self._rpc("auth.login_with_api_key", [key])
+        if result is True:
+            self._authenticated = True
+            return
+        raise TrueNASWsError(
+            f"TrueNAS rejected the API key over the WebSocket transport "
+            f"(auth.login_with_api_key returned {result!r}). Create a new key "
+            f"(Credentials → API Keys) and set 'username' in config.yaml; note "
+            f"that upgrading an appliance to TrueNAS 26 REVOKES existing keys.")
 
     # ── JSON-RPC ─────────────────────────────────────────────────────────
 
@@ -340,13 +387,47 @@ class TrueNASWsConnection:
 
     # ── the REST-shaped surface the ops layer already speaks ─────────────
 
+    def _methods(self) -> set[str]:
+        """The method names this appliance implements (read once, cached).
+
+        Resolved from the appliance rather than assumed, because the middleware
+        renames methods across releases — `zfs.snapshot.*` on 25.04 is
+        `pool.snapshot.*` on 26, and neither exists on the other. Guessing from
+        a version string would be a second thing to keep in sync; asking is
+        authoritative.
+        """
+        if self._method_cache is None:
+            result = self._rpc("core.get_methods", [])
+            self._method_cache = set(result) if isinstance(result, dict) else set()
+        return self._method_cache
+
+    def _pick(self, candidates: tuple, path: str) -> tuple[str, list]:
+        """First candidate this appliance implements."""
+        if len(candidates) == 1:
+            return candidates[0]
+        known = self._methods()
+        if not known:  # could not read the list — try the preferred candidate
+            return candidates[0]
+        for name, args in candidates:
+            if name in known:
+                return name, args
+        tried = ", ".join(name for name, _ in candidates)
+        raise UnmappedEndpoint(
+            f"This TrueNAS implements none of the methods this transport knows "
+            f"for {path}: tried {tried}. The middleware renames methods between "
+            f"releases — list the current ones with 'core.get_methods' on the "
+            f"appliance and add the new name to _ROUTES.",
+            path=path,
+        )
+
     def request(self, method: str, path: str, **kwargs: Any) -> Any:
         """Translate a REST call to JSON-RPC and return the parsed result."""
         params = kwargs.get("params") or {}
         body = kwargs.get("json")
-        rpc_method, rpc_params = _resolve(method, path, params, body)
+        candidates = _resolve(method, path, params, body)
         with self._lock:
             self._authenticate()
+            rpc_method, rpc_params = self._pick(candidates, path)
             result = self._rpc(rpc_method, rpc_params)
         # REST answers a bodyless success with {}; keep that contract so callers
         # that check for a dict do not have to special-case this transport.
@@ -364,6 +445,7 @@ class TrueNASWsConnection:
     def close(self) -> None:
         client, self._client = self._client, None
         self._authenticated = False
+        self._method_cache = None
         if client is None:
             return
         try:

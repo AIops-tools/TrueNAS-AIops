@@ -15,6 +15,7 @@ import typer
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
+    checked,
     cli_errors,
     console,
     double_confirm,
@@ -39,7 +40,7 @@ def undo_list_cmd(
     """List recorded, not-yet-applied undo tokens."""
     from mcp_server.tools import undo as gov
 
-    result = gov.undo_list(limit=limit, target=target)
+    result = checked(gov.undo_list(limit=limit, target=target))
     console.print_json(json.dumps(result))
     if result.get("truncated"):
         console.print(
@@ -71,4 +72,6 @@ def undo_apply_cmd(
         )
         return
     double_confirm("apply undo", undo_id)
-    console.print_json(json.dumps(gov.undo_apply(undo_id=undo_id, target=target)))
+    console.print_json(
+        json.dumps(checked(gov.undo_apply(undo_id=undo_id, target=target)))
+    )

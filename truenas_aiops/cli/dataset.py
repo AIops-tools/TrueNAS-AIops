@@ -11,6 +11,7 @@ from mcp_server.tools import datasets as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
+    checked,
     cli_errors,
     console,
     dry_run_preview,
@@ -55,5 +56,5 @@ def dataset_create(
             parameters={"name": name},
         )
         return
-    gov.dataset_create(name=name, target=target)
+    checked(gov.dataset_create(name=name, target=target))
     console.print(f"[green]Created dataset '{name}'[/]")

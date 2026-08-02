@@ -12,6 +12,7 @@ from mcp_server.tools import snapshots as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
+    checked,
     cli_errors,
     console,
     double_confirm,
@@ -55,7 +56,7 @@ def snapshot_list(
 @cli_errors
 def snapshot_create(dataset: str, name: str, target: TargetOption = None) -> None:
     """Create a ZFS snapshot 'dataset@name'."""
-    gov.snapshot_create(dataset=dataset, name=name, target=target)
+    checked(gov.snapshot_create(dataset=dataset, name=name, target=target))
     console.print(f"[green]Created snapshot {dataset}@{name}[/]")
 
 
@@ -76,5 +77,5 @@ def snapshot_delete(
         )
         return
     double_confirm("delete", f"snapshot {snapshot_id}")
-    gov.snapshot_delete(snapshot_id=snapshot_id, target=target)
+    checked(gov.snapshot_delete(snapshot_id=snapshot_id, target=target))
     console.print(f"[green]Deleted snapshot {snapshot_id}[/]")

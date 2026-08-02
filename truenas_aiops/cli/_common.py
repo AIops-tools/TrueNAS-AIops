@@ -37,6 +37,41 @@ def _cli_error_types() -> tuple[type[BaseException], ...]:
     return (TrueNASApiError, PolicyDenied, BudgetExceeded, KeyError, OSError, ValueError)
 
 
+#: Exit code for an operation whose outcome could not be determined. Distinct
+#: from 0 (confirmed) and 1 (failed) on purpose.
+EXIT_UNDETERMINED = 2
+
+
+def checked(result: Any) -> Any:
+    """Return ``result``, or abort when it reports a failed/undetermined write.
+
+    Every CLI command that calls a governed twin MUST pass its result through
+    here before printing a success line.
+
+    Governed twins are wrapped in ``@tool_errors``, which flattens any exception
+    into ``{"error": ...}`` and **returns** it — the CLI never sees the
+    exception. Without this check a command prints its green line regardless and
+    exits 0. Live-caught on a real TrueNAS 26.0.0-BETA.2 (2026-08-02): the
+    middleware answered ``zfs.snapshot.create: Method does not exist`` and the
+    CLI still printed "Created snapshot tank@tn26proof". Same defect class
+    already fixed in proxmox-aiops, xcpng-aiops and veeam-aiops — this repo was
+    the one never swept.
+    """
+    if not isinstance(result, dict):
+        return result
+    error = result.get("error")
+    if error:
+        console.print(f"[red]Error: {error}[/]")
+        hint = result.get("hint")
+        if hint:
+            console.print(f"[dim]{hint}[/]")
+        raise typer.Exit(1)
+    if result.get("outcomeUnknown"):
+        console.print(f"[yellow]Outcome undetermined: {result.get('note') or ''}[/]")
+        raise typer.Exit(EXIT_UNDETERMINED)
+    return result
+
+
 def cli_errors(fn: Callable) -> Callable:
     """Translate known exceptions into one red line + exit code 1."""
 

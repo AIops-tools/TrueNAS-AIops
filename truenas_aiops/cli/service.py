@@ -10,6 +10,7 @@ from mcp_server.tools import services as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
+    checked,
     cli_errors,
     console,
     double_confirm,
@@ -50,5 +51,5 @@ def service_restart(
         )
         return
     double_confirm("restart", f"service {service}")
-    gov.service_restart(service=service, confirm=True, target=target)
+    checked(gov.service_restart(service=service, confirm=True, target=target))
     console.print(f"[green]Restarted service '{service}'[/]")

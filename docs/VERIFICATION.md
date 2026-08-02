@@ -3,7 +3,45 @@
 This document records what has and has not been validated against a real
 TrueNAS SCALE appliance, so the maturity claim is auditable.
 
-## 🟢 The WebSocket transport exists and is live-verified (2026-08-02)
+## 🟢 Verified on a real TrueNAS **26** — and it found four bugs (2026-08-02)
+
+The transport below was built and cross-checked on 25.04. Standing up a real
+**TrueNAS 26.0.0-BETA.2** — the release the whole transport exists for — found
+four defects that 25.04 could not surface. Shipping without this run would have
+delivered "the transport for TrueNAS 26" broken *on TrueNAS 26*.
+
+**26 confirms the premise**: every REST path 404s (`/api/v2.0/system/info`,
+`/pool`, `/`), `/api/current` upgrades. So `UnsupportedServerVersion` detection
+is correct, and REST really is gone.
+
+| # | Bug | Why 25.04 could not show it |
+|---|---|---|
+| 1 | **`auth.login_ex` with `username=""` returns `AUTH_ERR`.** The code defaulted the username to empty, so `login_ex` could never succeed and the fallback silently rescued every login — the tool looked future-proof while depending entirely on the deprecated `login_with_api_key`. | The fallback works on both releases, so the failure was invisible |
+| 2 | **Any `login_ex` failure was masked by that fallback** — including a *wrong username*, which is a real credential error | same |
+| 3 | **The method table was pinned to 25.04 names.** Snapshots are `zfs.snapshot.*` on 25.04 and `pool.snapshot.*` on 26 — **each namespace is absent from the other**. `service.restart` became `service.control(verb, service)`. `smart.test.results` is **gone with no replacement** (26 has no `smart.*` at all). | 25.04 has the old names; nothing hinted they move |
+| 4 | **The CLI printed a green success for a failed write.** The middleware answered `zfs.snapshot.create: Method does not exist` and the CLI still printed "Created snapshot tank@tn26proof", exit 0. Same defect already fixed in proxmox/xcpng/veeam — this repo was never swept. | needs a write that actually fails |
+
+**Fixes**: authentication now uses `login_ex` when `username` is configured
+(served by **both** 25.04 and 26 — an earlier note claiming 25.04 lacks it was
+wrong) and reports its failures instead of falling back; with no `username` it
+uses the deprecated method and *warns*. The route table holds **candidates**
+resolved against the appliance's own `core.get_methods`, so one build works on
+both releases. Every CLI write goes through `checked()`.
+
+**Re-verified afterwards on BOTH appliances with the same build**: connect →
+reads → `snapshot create` → audit → `undo apply` → appliance confirms the
+snapshot is gone. On 26 that path runs `pool.snapshot.*`; on 25.04,
+`zfs.snapshot.*`.
+
+⚠️ **`smart_test_results` has no equivalent on TrueNAS 26.** It resolves to no
+candidate and refuses with a teaching error rather than reporting an empty list.
+
+> **Lab note:** TrueNAS 26 refuses to build a pool from disks with duplicate
+> serials, and virtio disks report none — `pool.create` fails with
+> `Disks have duplicate serial numbers: None (vda, vdb)`. Add an explicit
+> `<serial>` to each disk in the domain XML. 25.04 did not care.
+
+## 🟢 The WebSocket transport exists and is live-verified on 25.04 (2026-08-02)
 
 The "no path to managing TrueNAS 26" caveat further down is **resolved**.
 `truenas-aiops` now speaks JSON-RPC 2.0 over a persistent WebSocket at

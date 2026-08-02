@@ -45,7 +45,7 @@ def _target(**kw) -> TargetConfig:
         ("GET", "/system/info", "system.info"),
         ("GET", "/pool", "pool.query"),
         ("GET", "/pool/dataset", "pool.dataset.query"),
-        ("GET", "/zfs/snapshot", "zfs.snapshot.query"),
+        ("GET", "/zfs/snapshot", "pool.snapshot.query"),
         ("GET", "/disk", "disk.query"),
         ("GET", "/service", "service.query"),
         ("GET", "/alert/list", "alert.list"),
@@ -53,11 +53,13 @@ def _target(**kw) -> TargetConfig:
         ("GET", "/cloudsync", "cloudsync.query"),
         ("GET", "/smart/test/results", "smart.test.results"),
         ("POST", "/pool/dataset", "pool.dataset.create"),
-        ("POST", "/zfs/snapshot", "zfs.snapshot.create"),
+        ("POST", "/zfs/snapshot", "pool.snapshot.create"),
     ],
 )
 def test_every_rest_path_maps_to_a_real_middleware_method(verb, path, method):
-    assert _resolve(verb, path, {}, {})[0] == method
+    """The PREFERRED candidate — routes now carry a list, because the
+    middleware renames methods between releases."""
+    assert _resolve(verb, path, {}, {})[0][0] == method
 
 
 @pytest.mark.unit
@@ -68,12 +70,14 @@ def test_write_routes_read_the_body_keys_ops_actually_sends():
     ``body["pool"]`` while ops sends ``{"name": ...}``, so every scrub reached
     the middleware as ``pool.scrub.run(None, 35)`` and was rejected.
     """
-    method, params = _resolve("POST", "/pool/scrub/run",
-                              {}, {"name": "tank", "threshold": 0})
+    (method, params), = _resolve("POST", "/pool/scrub/run",
+                                 {}, {"name": "tank", "threshold": 0})
     assert (method, params) == ("pool.scrub.run", ["tank", 0])
 
-    method, params = _resolve("POST", "/service/restart", {}, {"service": "smartd"})
-    assert (method, params) == ("service.restart", ["smartd"])
+    cands = _resolve("POST", "/service/restart", {}, {"service": "smartd"})
+    # TrueNAS 26 renamed service.restart to service.control(verb, service).
+    assert cands == (("service.control", ["RESTART", "smartd"]),
+                     ("service.restart", ["smartd"]))
 
 
 @pytest.mark.unit
@@ -91,7 +95,7 @@ def test_disk_listing_asks_for_pool_membership():
     ones in a pool — an in-use disk becomes indistinguishable from a spare.
     That was a real REST-side bug; the WebSocket route must not reintroduce it.
     """
-    method, params = _resolve("GET", "/disk", {"extra.pools": "true"}, None)
+    (method, params), = _resolve("GET", "/disk", {"extra.pools": "true"}, None)
     assert method == "disk.query"
     assert params[1] == {"extra": {"pools": True}}
 
@@ -100,11 +104,11 @@ def test_disk_listing_asks_for_pool_membership():
 def test_a_single_pool_is_fetched_by_id_or_by_name():
     """Callers hold a name far more often than the numeric id (a finding reports
     `resource: tank`), so both must work — over REST this cost a live 404."""
-    method, params = _resolve("GET", "/pool/id/1", {}, None)
+    (method, params), = _resolve("GET", "/pool/id/1", {}, None)
     assert method == "pool.query"
     assert params == [[["id", "=", 1]], {"get": True}]
 
-    _method, params = _resolve("GET", "/pool/id/tank", {}, None)
+    (_m, params), = _resolve("GET", "/pool/id/tank", {}, None)
     assert params == [[["name", "=", "tank"]], {"get": True}]
 
 
@@ -113,11 +117,11 @@ def test_ids_are_url_decoded_out_of_the_rest_path():
     """The REST layer percent-encodes ids into the path; JSON-RPC takes them as
     values. Forgetting to decode would send the literal '%40' to the middleware.
     """
-    method, params = _resolve("DELETE", "/zfs/snapshot/id/tank%2Fdata%40snap1", {}, None)
-    assert method == "zfs.snapshot.delete"
-    assert params == ["tank/data@snap1"]
+    cands = _resolve("DELETE", "/zfs/snapshot/id/tank%2Fdata%40snap1", {}, None)
+    assert [m for m, _ in cands] == ["pool.snapshot.delete", "zfs.snapshot.delete"]
+    assert all(args == ["tank/data@snap1"] for _, args in cands)
 
-    _m, params = _resolve("GET", "/pool/dataset/id/tank%2Fdata", {}, None)
+    (_m, params), = _resolve("GET", "/pool/dataset/id/tank%2Fdata", {}, None)
     assert params[0] == [["id", "=", "tank/data"]]
 
 
@@ -202,27 +206,67 @@ def test_a_null_result_becomes_an_empty_dict_matching_rest(monkeypatch):
 
 
 @pytest.mark.unit
-def test_auth_prefers_login_ex_and_falls_back_to_the_api_key_mechanism(monkeypatch):
-    """TrueNAS 26 deprecates auth.login_with_api_key in favour of auth.login_ex;
-    25.04 serves the older one. Try the survivor first, fall back."""
+def test_login_ex_is_used_only_when_a_username_is_configured(monkeypatch):
+    """Verified against a real TrueNAS 26.0.0-BETA.2: `auth.login_ex` with
+    API_KEY_PLAIN and `username=""` returns AUTH_ERR, while the same key with
+    the owning username returns SUCCESS. The key does not carry the username, so
+    it cannot be derived — which makes "try login_ex, fall back" the wrong shape:
+    with no username it is a guaranteed failure that the fallback then rescues,
+    leaving the tool looking future-proof while depending entirely on a
+    deprecated method.
+    """
     monkeypatch.setenv("TRUENAS_TN_APIKEY", "k-123")
     ws = _FakeWs({
-        "auth.login_ex": {"error": {"code": -32601, "message": "Method not found"}},
-        "auth.login_with_api_key": {"result": True},
-        "system.info": {"result": {"version": "25.04.2.1"}},
+        "auth.login_ex": {"result": {"response_type": "SUCCESS"}},
+        "system.info": {"result": {"version": "26.0.0-BETA.2"}},
     })
+    conn = TrueNASWsConnection(_target(username="truenas_admin"), client=ws)
+    assert conn.get("/system/info")["version"] == "26.0.0-BETA.2"
+    sent = [m["method"] for m in ws.sent]
+    assert sent[0] == "auth.login_ex"
+    assert "auth.login_with_api_key" not in sent, "must not fall back on success"
+    assert ws.sent[0]["params"][0]["username"] == "truenas_admin"
+
+
+@pytest.mark.unit
+def test_a_wrong_username_is_reported_not_masked_by_a_fallback(monkeypatch):
+    """The old shape fell back on ANY login_ex failure, so a wrong username was
+    silently rescued by the deprecated method — the operator would never learn
+    their config was wrong until the day that method is removed."""
+    monkeypatch.setenv("TRUENAS_TN_APIKEY", "k-123")
+    ws = _FakeWs({
+        "auth.login_ex": {"result": {"response_type": "AUTH_ERR"}},
+        "auth.login_with_api_key": {"result": True},
+    })
+    conn = TrueNASWsConnection(_target(username="wronguser"), client=ws)
+    with pytest.raises(TrueNASWsError, match="wronguser"):
+        conn.get("/system/info")
+    assert "auth.login_with_api_key" not in [m["method"] for m in ws.sent]
+
+
+@pytest.mark.unit
+def test_without_a_username_the_deprecated_method_is_used_and_warned_about(
+    monkeypatch, caplog
+):
+    """login_with_api_key still exists on TrueNAS 26 (it answers `false` for a bad
+    key rather than "method not found"), so this stays correct there today — but
+    it is on a clock. `login_ex` is served by BOTH 25.04 and 26 (verified on real
+    appliances of each), so setting `username` moves any target off the
+    deprecated path, not just a 26 one."""
+    monkeypatch.setenv("TRUENAS_TN_APIKEY", "k-123")
+    ws = _FakeWs({"auth.login_with_api_key": {"result": True},
+                  "system.info": {"result": {"version": "25.04.2.1"}}})
     conn = TrueNASWsConnection(_target(), client=ws)
-    assert conn.get("/system/info")["version"] == "25.04.2.1"
-    assert [m["method"] for m in ws.sent][:2] == ["auth.login_ex", "auth.login_with_api_key"]
+    with caplog.at_level("WARNING"):
+        assert conn.get("/system/info")["version"] == "25.04.2.1"
+    assert [m["method"] for m in ws.sent][0] == "auth.login_with_api_key"
+    assert "username" in caplog.text and "deprecated" in caplog.text
 
 
 @pytest.mark.unit
 def test_a_rejected_key_says_that_upgrading_to_26_revokes_keys(monkeypatch):
     monkeypatch.setenv("TRUENAS_TN_APIKEY", "k-123")
-    ws = _FakeWs({
-        "auth.login_ex": {"result": False},
-        "auth.login_with_api_key": {"result": False},
-    })
+    ws = _FakeWs({"auth.login_with_api_key": {"result": False}})
     conn = TrueNASWsConnection(_target(), client=ws)
     with pytest.raises(TrueNASWsError, match="REVOKES existing keys"):
         conn.get("/system/info")
@@ -293,3 +337,51 @@ def test_closing_is_idempotent_and_never_raises():
     conn.close()
     conn.close()  # second close has nothing to do
     assert ws.close.call_count == 1
+
+
+@pytest.mark.unit
+def test_the_method_a_route_uses_is_chosen_from_what_the_appliance_implements(
+    monkeypatch,
+):
+    """The middleware RENAMES methods between releases. Verified by running one
+    table against a real 25.04.2.1 and a real 26.0.0-BETA.2: snapshots are
+    `zfs.snapshot.*` on the former and `pool.snapshot.*` on the latter, and
+    each namespace is absent from the other. Pinning either ships a transport
+    that is broken on the other release, so the candidate is resolved against
+    the appliance's own core.get_methods.
+    """
+    monkeypatch.setenv("TRUENAS_TN_APIKEY", "k-123")
+
+    def conn_for(available: set, snap_reply):
+        ws = _FakeWs({
+            "auth.login_with_api_key": {"result": True},
+            "core.get_methods": {"result": {m: {} for m in available}},
+            **snap_reply,
+        })
+        return ws, TrueNASWsConnection(_target(), client=ws)
+
+    # TrueNAS 26: only pool.snapshot.* exists.
+    ws, conn = conn_for({"core.get_methods", "pool.snapshot.query"},
+                        {"pool.snapshot.query": {"result": [{"name": "tank@a"}]}})
+    assert conn.get("/zfs/snapshot") == [{"name": "tank@a"}]
+    assert "pool.snapshot.query" in [m["method"] for m in ws.sent]
+
+    # TrueNAS 25.04: only zfs.snapshot.* exists — same code, other name.
+    ws, conn = conn_for({"core.get_methods", "zfs.snapshot.query"},
+                        {"zfs.snapshot.query": {"result": [{"name": "tank@b"}]}})
+    assert conn.get("/zfs/snapshot") == [{"name": "tank@b"}]
+    assert "zfs.snapshot.query" in [m["method"] for m in ws.sent]
+
+
+@pytest.mark.unit
+def test_an_appliance_implementing_no_candidate_is_told_so_not_left_guessing(
+    monkeypatch,
+):
+    """A future rename must surface as "none of these exist, go list them",
+    not as an opaque middleware validation error."""
+    monkeypatch.setenv("TRUENAS_TN_APIKEY", "k-123")
+    ws = _FakeWs({"auth.login_with_api_key": {"result": True},
+                  "core.get_methods": {"result": {"core.get_methods": {}}}})
+    conn = TrueNASWsConnection(_target(), client=ws)
+    with pytest.raises(UnmappedEndpoint, match="core.get_methods"):
+        conn.get("/zfs/snapshot")

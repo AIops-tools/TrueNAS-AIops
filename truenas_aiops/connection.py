@@ -245,6 +245,9 @@ class TrueNASConnection:
         self._client.close()
 
 
+WS_PROBE_PATH = "/api/current"
+
+
 def websocket_available(target: TargetConfig, timeout: float = 6.0) -> bool:
     """True when the appliance serves the JSON-RPC WebSocket at ``/api/current``.
 
@@ -267,7 +270,7 @@ def websocket_available(target: TargetConfig, timeout: float = 6.0) -> bool:
             raw = ctx.wrap_socket(raw, server_hostname=target.host)
         key = base64.b64encode(os.urandom(16)).decode()
         raw.sendall(
-            f"GET /api/current HTTP/1.1\r\nHost: {target.host}\r\n"
+            f"GET {WS_PROBE_PATH} HTTP/1.1\r\nHost: {target.host}\r\n"
             f"Upgrade: websocket\r\nConnection: Upgrade\r\n"
             f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
             .encode()
@@ -289,9 +292,25 @@ def _open(target: TargetConfig) -> Any:
         return TrueNASWsConnection(target)
     if transport == "rest":
         return TrueNASConnection(target)
+
     # auto: prefer the API that still exists on TrueNAS 26.
-    if websocket_available(target):
+    #
+    # The probe is retried once, and a fall-back to REST is WARNED about rather
+    # than taken silently. Falling back is right for 25.10 and older, but on a
+    # TrueNAS 26 appliance REST is gone entirely — so a single flaky probe (seen
+    # against an appliance still warming up right after boot) would silently
+    # turn a working target into "the REST API returned 404 for /system/info".
+    # The operator needs to know a downgrade happened, and that pinning
+    # `transport: websocket` is the fix.
+    if websocket_available(target) or websocket_available(target):
         return TrueNASWsConnection(target)
+    _log.warning(
+        "No JSON-RPC WebSocket at %s on target %r, so REST is used. That is "
+        "correct for TrueNAS 25.10 and older. If this appliance is 26 or newer "
+        "the probe failed spuriously — REST is REMOVED there — so pin "
+        "'transport: websocket' in config.yaml.",
+        WS_PROBE_PATH, target.name,
+    )
     return TrueNASConnection(target)
 
 
