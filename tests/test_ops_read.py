@@ -418,7 +418,11 @@ def test_scrub_start_posts_and_captures_prior_scan():
         {"name": "backup", "scan": {"state": "SCANNING"}},
     ]
     result = pool_ops.scrub_start(conn, "tank")
-    conn.post.assert_called_once_with("/pool/scrub/run", json={"name": "tank"})
+    conn.post.assert_called_once_with(
+        # threshold=0 is mandatory: TrueNAS defaults to 35 DAYS and silently
+        # skips the scrub if the pool was scanned more recently.
+        "/pool/scrub/run", json={"name": "tank", "threshold": 0}
+    )
     assert result["pool"] == "tank"
     assert result["action"] == "scrub_start"
     assert result["priorScan"] == {"found": True, "state": {"state": "FINISHED"}, "error": None}
@@ -433,7 +437,11 @@ def test_scrub_start_prior_scan_reports_probe_failure_not_emptiness():
     assert result["priorScan"]["found"] is None  # unknown, NOT absent
     assert result["priorScan"]["state"] is None
     assert "pool list boom" in result["priorScan"]["error"]
-    conn.post.assert_called_once_with("/pool/scrub/run", json={"name": "tank"})
+    conn.post.assert_called_once_with(
+        # threshold=0 is mandatory: TrueNAS defaults to 35 DAYS and silently
+        # skips the scrub if the pool was scanned more recently.
+        "/pool/scrub/run", json={"name": "tank", "threshold": 0}
+    )
 
 
 @pytest.mark.unit

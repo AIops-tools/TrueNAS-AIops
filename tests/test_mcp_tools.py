@@ -148,7 +148,12 @@ def test_pool_scrub_start_audited(gov_home, monkeypatch):
     _patch_conn(monkeypatch, pool_tools, conn)
     result = pool_tools.pool_scrub_start(pool_name="tank")
     assert result["action"] == "scrub_start"
-    conn.post.assert_called_once_with("/pool/scrub/run", json={"name": "tank"})
+    # threshold=0 is mandatory: TrueNAS's own default is 35 DAYS and it
+    # silently skips the scrub if the pool was scanned more recently, while
+    # still returning success (verified on 25.04.2.1).
+    conn.post.assert_called_once_with(
+        "/pool/scrub/run", json={"name": "tank", "threshold": 0}
+    )
     assert "pool_scrub_start" in _audit_tools(gov_home / "audit.db")
 
 

@@ -54,12 +54,35 @@ def _target(**kw) -> TargetConfig:
         ("GET", "/smart/test/results", "smart.test.results"),
         ("POST", "/pool/dataset", "pool.dataset.create"),
         ("POST", "/zfs/snapshot", "zfs.snapshot.create"),
-        ("POST", "/pool/scrub/run", "pool.scrub.run"),
-        ("POST", "/service/restart", "service.restart"),
     ],
 )
 def test_every_rest_path_maps_to_a_real_middleware_method(verb, path, method):
     assert _resolve(verb, path, {}, {})[0] == method
+
+
+@pytest.mark.unit
+def test_write_routes_read_the_body_keys_ops_actually_sends():
+    """The body keys are the contract between ops and this table, and a
+    mismatch is INVISIBLE over REST (which forwards the body verbatim) while
+    breaking the operation over WebSocket. That happened: the scrub route read
+    ``body["pool"]`` while ops sends ``{"name": ...}``, so every scrub reached
+    the middleware as ``pool.scrub.run(None, 35)`` and was rejected.
+    """
+    method, params = _resolve("POST", "/pool/scrub/run",
+                              {}, {"name": "tank", "threshold": 0})
+    assert (method, params) == ("pool.scrub.run", ["tank", 0])
+
+    method, params = _resolve("POST", "/service/restart", {}, {"service": "smartd"})
+    assert (method, params) == ("service.restart", ["smartd"])
+
+
+@pytest.mark.unit
+def test_a_missing_body_key_names_the_translation_table_not_the_caller():
+    """Passing None through to the middleware yields a validation error naming
+    the middleware's parameter, which is exactly how the scrub bug read — it
+    pointed away from the real cause."""
+    with pytest.raises(UnmappedEndpoint, match="translation-table bug"):
+        _resolve("POST", "/pool/scrub/run", {}, {})
 
 
 @pytest.mark.unit

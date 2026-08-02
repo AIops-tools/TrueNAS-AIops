@@ -234,5 +234,15 @@ def scrub_start(conn: Any, pool_name: str) -> dict:
     read — the scrub was still started; only the BEFORE record is missing.
     """
     prior = _prior_scan(conn, pool_name)
-    conn.post("/pool/scrub/run", json={"name": pool_name})
+    # threshold=0 is REQUIRED, not a tuning knob. TrueNAS documents
+    # pool.scrub.run as "initiate a scrub ... IF the last scrub was performed
+    # more than `threshold` days before", and its default is 35 — so omitting it
+    # means a pool scanned within the last 35 days is SILENTLY SKIPPED while the
+    # call still succeeds. Verified against TrueNAS SCALE 25.04.2.1 (2026-08-02):
+    # run(tank, 35) returned null and left the scan state untouched; run(tank, 0)
+    # returned the same null and actually scrubbed. An operator asking to scrub a
+    # pool they are worried about was being told it started when nothing ran.
+    # The day-threshold exists for SCHEDULED scrub tasks, not for an explicit
+    # "scrub this pool now".
+    conn.post("/pool/scrub/run", json={"name": pool_name, "threshold": 0})
     return {"pool": s(pool_name, 128), "action": "scrub_start", "priorScan": prior}

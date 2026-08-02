@@ -24,12 +24,37 @@ TrueNAS 26 required.
 | `DELETE /zfs/snapshot/id/{id}` | `zfs.snapshot.delete` | write loop below |
 | `GET /disk?extra.pools=true` | `disk.query` + `{"extra":{"pools":true}}` | 3/3, pool membership present |
 | `GET /service` · `/alert/list` · `/replication` · `/cloudsync` · `/smart/test/results` | `service.query` · `alert.list` · `replication.query` · `cloudsync.query` · `smart.test.results` | all match |
-| `POST /pool/dataset` · `/zfs/snapshot` · `/pool/scrub/run` · `/service/restart` | `pool.dataset.create` · `zfs.snapshot.create` · `pool.scrub.run` · `service.restart` | create verified below |
+| `POST /pool/dataset` | `pool.dataset.create` | created `tank/wsreview`, confirmed on the appliance |
+| `POST /zfs/snapshot` · `DELETE .../id/{id}` | `zfs.snapshot.create` · `zfs.snapshot.delete` | full write→undo loop below |
+| `POST /pool/scrub/run` | `pool.scrub.run` | scrub confirmed by an advancing `scan.start_time` — **after fixing two bugs, see below** |
+| `POST /service/restart` | `service.restart` | restarted `smartd`, appliance reports RUNNING |
 
 Every method name was taken from the appliance's own `core.get_methods` (771
 methods), never from documentation — this line has shipped invented endpoints
 before. Note 25.04 has `zfs.snapshot.*`; `pool.snapshot.*` does **not** exist
 there.
+
+### Two bugs the write routes only revealed when actually exercised
+
+The read routes were cross-checked first and all matched, which is exactly why
+the write routes needed exercising separately rather than being assumed good.
+
+1. **The scrub route read the wrong body key.** It looked for `body["pool"]`
+   while `ops` sends `{"name": ...}`, so every scrub reached the middleware as
+   `pool.scrub.run(None, 35)` and was rejected. **Invisible over REST**, which
+   forwards the body verbatim — a WebSocket-only break. The write-route table
+   now reads the keys `ops` actually posts, and a missing key raises an error
+   naming *the translation table*, not the middleware parameter.
+
+2. **`pool.scrub.run`'s `threshold` is 35 DAYS, and the scrub is silently
+   skipped below it** — "initiate a scrub of a pool `name` if last scrub was
+   performed more than `threshold` days before". Proven on the appliance:
+   `run(tank, 35)` returned `null` and left the scan state untouched;
+   `run(tank, 0)` returned the *same* `null` and actually scrubbed. The tool
+   printed "Started scrub" in both cases. **This affected REST too** — `ops`
+   never sent a threshold, so REST applied the same default. Fixed in
+   `ops/pools.py` (`threshold: 0`), which fixes both transports; re-verified on
+   each by watching `scan.start_time` advance.
 
 **Full governance loop over WebSocket**: `snapshot create tank wsproof` →
 appliance snapshot count 7→8 → audit row `snapshot_create|ok` → undo token

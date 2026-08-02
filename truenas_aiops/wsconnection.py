@@ -128,14 +128,47 @@ _ID_ROUTES: list[tuple[str, str, Any]] = [
     ("DELETE", "/zfs/snapshot/id/", _route_snapshot_delete),
 ]
 
-#: Writes. Each takes the REST body and returns the JSON-RPC params.
+#: Writes. Each takes the REST body the ops layer sends and returns the JSON-RPC
+#: params.
+#:
+#: The body keys here are NOT a guess — they are the keys
+#: :mod:`truenas_aiops.ops` actually posts, and a mismatch is invisible over
+#: REST (which forwards the body verbatim) while breaking the operation over
+#: WebSocket. That is not hypothetical: this table first read ``body["pool"]``
+#: for a scrub while ops sends ``{"name": ...}``, so every scrub reached the
+#: middleware as ``pool.scrub.run(None, 35)`` and was rejected. Positional
+#: arities were read from the appliance's own ``core.get_methods`` schema
+#: (``pool.scrub.run(name, threshold)``, ``service.restart(service,
+#: service-control)``), not inferred from the REST shape.
+_SCRUB_DEFAULT_THRESHOLD = 35
+
+
+def _require(body: Any, key: str, method: str) -> Any:
+    """Read a body key the ops layer is contracted to send, or say so loudly.
+
+    Silently passing ``None`` to the middleware produces a validation error that
+    names the middleware's parameter, not the mismatch that caused it — which is
+    exactly how the scrub bug read when it happened.
+    """
+    value = (body or {}).get(key)
+    if value is None:
+        raise UnmappedEndpoint(
+            f"The WebSocket route for '{method}' expected '{key}' in the request "
+            f"body but it was absent. This is a translation-table bug, not a "
+            f"caller error: fix the key in truenas_aiops/wsconnection.py to match "
+            f"what truenas_aiops.ops actually posts."
+        )
+    return value
+
+
 _WRITE_ROUTES: dict[tuple[str, str], Any] = {
     ("POST", "/pool/dataset"): lambda body: ("pool.dataset.create", [body or {}]),
     ("POST", "/zfs/snapshot"): lambda body: ("zfs.snapshot.create", [body or {}]),
     ("POST", "/pool/scrub/run"): lambda body: ("pool.scrub.run", [
-        (body or {}).get("pool"), (body or {}).get("threshold", 35)]),
+        _require(body, "name", "pool.scrub.run"),
+        (body or {}).get("threshold", _SCRUB_DEFAULT_THRESHOLD)]),
     ("POST", "/service/restart"): lambda body: ("service.restart", [
-        (body or {}).get("service")]),
+        _require(body, "service", "service.restart")]),
 }
 
 
