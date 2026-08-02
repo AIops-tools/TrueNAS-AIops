@@ -6,6 +6,7 @@
 - **Requires MCP SDK 2.0** (`mcp[cli]>=2.0,<3.0`). `mcp.server.fastmcp` no longer exists in 2.0; the server is now built with `MCPServer` and reports its package version in the stdio handshake.
 
 ### Fixed
+- **The pool RCA sanitised the pool name but not its status.** Unlike the sibling tools, whose RCAs are handed already-sanitized ops output, this one receives RAW `/pool` records — so appliance-controlled text reached a finding an agent reads without passing the control-character filter. `.upper()` is not a sanitiser. A line-wide sweep confirmed this repo was the only one affected; the other RCAs re-stringify values their ops layer already cleaned.
 - **`undo apply` works from the CLI.** Every write tool is imported lazily inside its own CLI command, so a CLI-driven undo ran in a process where the inverse tool was never registered and failed with "inverse tool is not registered" — for every write tool. Only the MCP entry point, which imports the whole server, worked.
 
 ### Added

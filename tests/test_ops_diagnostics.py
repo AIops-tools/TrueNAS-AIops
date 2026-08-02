@@ -254,3 +254,20 @@ def test_rank_assigns_explicit_worst_first_rank():
     ranked = _diag._rank([{"severity": "info"}, {"severity": "critical"}, {"severity": "warning"}])
     assert [f["severity"] for f in ranked] == ["critical", "warning", "info"]
     assert [f["rank"] for f in ranked] == [1, 2, 3]
+
+
+@pytest.mark.unit
+def test_pool_status_is_sanitized_before_it_reaches_a_finding():
+    """Unlike its sibling tools, this RCA is handed RAW `/pool` records — the MCP
+    tool passes `conn.get("/pool")` straight in, where proxmox/network/veeam pass
+    already-sanitized ops output. So the sanitising has to happen here. `name`
+    always did; `status` did not, and `.upper()` is not a sanitiser.
+    """
+    from truenas_aiops.ops.diagnostics import pool_health_findings
+
+    out = pool_health_findings(
+        [{"name": "ta\x07nk", "status": "DEGR\x00ADED", "healthy": False}]
+    )
+    finding = out["findings"][0]
+    assert "\x00" not in finding["detail"] and "\x07" not in finding["resource"]
+    assert finding["detail"].startswith("pool status is DEGRADED")

@@ -233,7 +233,11 @@ def pool_health_findings(pools: list[dict]) -> dict:
     summary: list[dict] = []
     for p in pools:
         name = s(p.get("name") or p.get("id") or "?", 128)
-        status = str(p.get("status") or "").upper()
+        # Sanitized like every other upstream string: ZFS states are a small
+        # known set in practice, but this value is interpolated straight into
+        # a finding an agent reads, and .upper() is not a sanitiser. `name`
+        # above already goes through s(); this was the one that did not.
+        status = s(p.get("status") or "", 32).upper()
         used_pct = _pct(p.get("allocated"), p.get("size"))
         errors = _pool_error_totals(p)
         summary.append({"pool": name, "status": status, "usedPercent": used_pct,
