@@ -3,6 +3,66 @@
 This document records what has and has not been validated against a real
 TrueNAS SCALE appliance, so the maturity claim is auditable.
 
+## 🟢 The WebSocket transport exists and is live-verified (2026-08-02)
+
+The "no path to managing TrueNAS 26" caveat further down is **resolved**.
+`truenas-aiops` now speaks JSON-RPC 2.0 over a persistent WebSocket at
+`/api/current` — the API that survives TrueNAS 26 — alongside REST.
+
+**It was verifiable today, which was the surprise.** TrueNAS **25.04.2.1 already
+serves `/api/current`** (a plain upgrade probe returns `101 Switching
+Protocols`), so the transport was developed against the current lab appliance
+and every route cross-checked against its REST equivalent on the same box. No
+TrueNAS 26 required.
+
+| REST path | middleware method | live check |
+|---|---|---|
+| `GET /system/info` | `system.info` | 19/19 keys match REST |
+| `GET /pool` · `/pool/id/{id}` | `pool.query` (`{"get": true}`) | match; **and works by pool *name***, which REST cannot do |
+| `GET /pool/dataset` (+ by id) | `pool.dataset.query` | match |
+| `GET /zfs/snapshot` | `zfs.snapshot.query` | 7/7 rows |
+| `DELETE /zfs/snapshot/id/{id}` | `zfs.snapshot.delete` | write loop below |
+| `GET /disk?extra.pools=true` | `disk.query` + `{"extra":{"pools":true}}` | 3/3, pool membership present |
+| `GET /service` · `/alert/list` · `/replication` · `/cloudsync` · `/smart/test/results` | `service.query` · `alert.list` · `replication.query` · `cloudsync.query` · `smart.test.results` | all match |
+| `POST /pool/dataset` · `/zfs/snapshot` · `/pool/scrub/run` · `/service/restart` | `pool.dataset.create` · `zfs.snapshot.create` · `pool.scrub.run` · `service.restart` | create verified below |
+
+Every method name was taken from the appliance's own `core.get_methods` (771
+methods), never from documentation — this line has shipped invented endpoints
+before. Note 25.04 has `zfs.snapshot.*`; `pool.snapshot.*` does **not** exist
+there.
+
+**Full governance loop over WebSocket**: `snapshot create tank wsproof` →
+appliance snapshot count 7→8 → audit row `snapshot_create|ok` → undo token
+`effectVerified: true` → `undo apply` → `snapshot_delete|ok` → count back to 7,
+`tank@wsproof` gone. The unbypassable-audit claim holds on the new transport.
+
+**Architecture**: the transport implements the same `get`/`post`/`delete`
+surface over REST-shaped paths, so **not one of the thirteen ops modules
+changed**. `TrueNASConnection.request` was already the single chokepoint; this
+swaps what sits behind it.
+
+**Configuration** — `transport:` per target:
+
+- `auto` (default) — probe `/api/current`; use WebSocket when offered, REST
+  otherwise. Picks the API that will still exist.
+- `websocket` / `rest` — pin one while migrating.
+
+**Two things learned the hard way, both encoded in the code:**
+
+1. `websockets` defaults to a **1 MiB frame ceiling** and answers a larger reply
+   by closing the connection with `1009 message too big`. `core.get_methods`
+   alone exceeded it on a stock appliance; a NAS with thousands of snapshots
+   would hit it on an ordinary listing. The ceiling is raised explicitly.
+2. `websockets` was only a **transitive** dependency (via `mcp`). It is now
+   declared — shipping a transport whose library is an accident of another
+   package is how `pip install` succeeds and nothing connects.
+
+**Still open**: TrueNAS 26 deprecates `auth.login_with_api_key` for
+`auth.login_ex`; the transport tries `login_ex` first and falls back, but only
+the fallback path has been exercised against a live appliance (25.04 has no
+`login_ex`). **Upgrading an appliance to 26 revokes existing API keys** — expect
+to mint a new one.
+
 ## 🔴 Round 2 — degraded-pool RCA (2026-08-02): two real bugs
 
 Closes the "multi-disk failure / degraded-pool RCA" gap named below. A **real

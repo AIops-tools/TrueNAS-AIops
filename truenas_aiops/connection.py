@@ -27,6 +27,9 @@ The httpx client is injectable for tests: pass ``client=`` to
 from __future__ import annotations
 
 import atexit
+import logging
+import socket
+import ssl
 import weakref
 from typing import Any
 from urllib.parse import quote
@@ -35,6 +38,8 @@ import httpx
 
 from truenas_aiops.config import AppConfig, TargetConfig, load_config
 from truenas_aiops.version_support import REST_REMOVED_MAJOR, WEBSOCKET_API_PATH
+
+_log = logging.getLogger("truenas-aiops.connection")
 
 _TIMEOUT = 30.0
 
@@ -240,6 +245,56 @@ class TrueNASConnection:
         self._client.close()
 
 
+def websocket_available(target: TargetConfig, timeout: float = 6.0) -> bool:
+    """True when the appliance serves the JSON-RPC WebSocket at ``/api/current``.
+
+    A cheap HTTP upgrade probe, not a login: it answers "does this appliance
+    speak the API that survives TrueNAS 26" without spending a credential. Any
+    failure is reported as *not available* rather than raised — the caller's
+    fallback is REST, which is still correct on 25.10 and older.
+    """
+    import base64
+    import os
+
+    scheme = getattr(target, "scheme", "https")
+    try:
+        raw = socket.create_connection((target.host, target.port), timeout=timeout)
+        if scheme == "https":
+            ctx = ssl.create_default_context()
+            if not target.verify_ssl:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            raw = ctx.wrap_socket(raw, server_hostname=target.host)
+        key = base64.b64encode(os.urandom(16)).decode()
+        raw.sendall(
+            f"GET /api/current HTTP/1.1\r\nHost: {target.host}\r\n"
+            f"Upgrade: websocket\r\nConnection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+            .encode()
+        )
+        status = raw.recv(256).decode(errors="replace").splitlines()[0]
+        raw.close()
+        return "101" in status
+    except Exception:  # noqa: BLE001 — a failed probe means "use REST", not a crash
+        _log.debug("WebSocket probe against %s failed", target.host, exc_info=True)
+        return False
+
+
+def _open(target: TargetConfig) -> Any:
+    """Build the connection this target's ``transport`` setting asks for."""
+    from truenas_aiops.wsconnection import TrueNASWsConnection
+
+    transport = getattr(target, "transport", "auto")
+    if transport == "websocket":
+        return TrueNASWsConnection(target)
+    if transport == "rest":
+        return TrueNASConnection(target)
+    # auto: prefer the API that still exists on TrueNAS 26.
+    if websocket_available(target):
+        return TrueNASWsConnection(target)
+    return TrueNASConnection(target)
+
+
 class ConnectionManager:
     """Manages connections to multiple TrueNAS targets with session reuse."""
 
@@ -253,8 +308,12 @@ class ConnectionManager:
         cfg = config or load_config()
         return cls(cfg)
 
-    def connect(self, target_name: str | None = None) -> TrueNASConnection:
-        """Connect to a target by name, or the default target."""
+    def connect(self, target_name: str | None = None) -> Any:
+        """Connect to a target by name, or the default target.
+
+        Returns whichever transport the target asks for. Both expose the same
+        ``get``/``post``/``delete`` surface, so callers never branch on it.
+        """
         target = (
             self._config.get_target(target_name)
             if target_name
@@ -263,7 +322,7 @@ class ConnectionManager:
         cached = self._connections.get(target.name)
         if cached is not None:
             return cached
-        conn = TrueNASConnection(target)
+        conn = _open(target)
         self._connections[target.name] = conn
         return conn
 

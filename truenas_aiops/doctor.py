@@ -11,13 +11,23 @@ from truenas_aiops.version_support import DEPRECATED, REMOVED, UNKNOWN, check_re
 _console = Console()
 
 
-def _report_rest_support(raw_version: object) -> int:
-    """Print the REST-transport verdict for one target; return problems to add.
+def _report_rest_support(raw_version: object, on_websocket: bool = False) -> int:
+    """Print the transport verdict for one target; return problems to add.
 
-    ``removed`` is a hard failure (this tool cannot talk to the server at all).
-    ``deprecated`` and ``unknown`` are warnings: the tool works today, but the
-    operator needs to know it is on a clock — or that we could not tell.
+    The REST clock only applies when REST is what we are speaking. On the
+    JSON-RPC WebSocket transport the retirement of REST is *irrelevant* — the
+    connection already uses the API that survives TrueNAS 26 — and repeating
+    "this tool needs a WebSocket transport" while using one is simply a false
+    statement to the operator. Reporting it accurately is the whole point of a
+    doctor.
     """
+    if on_websocket:
+        _console.print(
+            "[green]✓ Connected over JSON-RPC/WebSocket (/api/current) — the "
+            "transport TrueNAS 26 requires. REST's retirement does not affect "
+            "this target.[/]"
+        )
+        return 0
     support = check_rest_support(raw_version if isinstance(raw_version, str) else None)
     if support.status == REMOVED:
         _console.print(f"[red]✗ {support.message}[/]")
@@ -98,7 +108,11 @@ def run_doctor(skip_auth: bool = False) -> int:
                 f"[green]✓ Connected to '{target.name}' ({target.host}) "
                 f"— TrueNAS {raw_version or '?'}[/]"
             )
-            problems += _report_rest_support(raw_version)
+            from truenas_aiops.wsconnection import TrueNASWsConnection
+
+            problems += _report_rest_support(
+                raw_version, on_websocket=isinstance(conn, TrueNASWsConnection)
+            )
         except Exception as exc:  # noqa: BLE001 — connectivity is a status, not a crash
             _console.print(f"[red]✗ Connect to '{target.name}' failed: {exc}[/]")
             problems += 1

@@ -102,7 +102,26 @@ class TargetConfig:
     def api_key(self) -> str:
         return _resolve_secret(self.name)
 
+    transport: str = "auto"
+    """Which API to speak: ``rest``, ``websocket``, or ``auto`` (default).
+
+    TrueNAS is mid-migration: REST v2.0 is deprecated in 25.04 and **removed in
+    26**, replaced by JSON-RPC 2.0 over a WebSocket at ``/api/current``. 25.04
+    and later serve BOTH, so ``auto`` picks the transport that will still exist:
+    WebSocket when the appliance offers it, REST otherwise. Pin it explicitly to
+    keep an appliance on one or the other while migrating.
+    """
+
+    username: str = ""
+    """Account owning the API key. Only used by ``auth.login_ex`` on TrueNAS 26+;
+    25.04's ``auth.login_with_api_key`` needs the key alone."""
+
     def __post_init__(self) -> None:
+        if self.transport not in ("auto", "rest", "websocket"):
+            raise ValueError(
+                f"Target '{self.name}': transport must be 'auto', 'rest' or "
+                f"'websocket', got '{self.transport}'."
+            )
         if self.scheme not in ("https", "http"):
             raise ValueError(
                 f"Target '{self.name}': scheme must be 'https' or 'http', "
@@ -155,6 +174,8 @@ def load_config(config_path: Path | None = None) -> AppConfig:
             verify_ssl=t.get("verify_ssl", True),
             scheme=t.get("scheme", "https"),
             api_path=t.get("api_path", DEFAULT_API_PATH),
+            transport=t.get("transport", "auto"),
+            username=t.get("username", ""),
         )
         for t in raw.get("targets", [])
     )
