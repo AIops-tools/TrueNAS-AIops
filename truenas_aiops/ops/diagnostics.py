@@ -25,6 +25,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from truenas_aiops.ops._util import s
+from truenas_aiops.ops.pools import unhealthy_members
 
 # Thresholds that flip a signal on. Each is surfaced in the finding text next to
 # the measured value so the ranking is auditable, not opaque.
@@ -149,11 +150,28 @@ def _pool_error_totals(pool: dict) -> dict:
     return totals
 
 
-def _pool_status_finding(name: str, status: str, healthy: Any) -> dict | None:
+def _bad_members(pool: dict) -> str:
+    """Name the members that are not carrying data, for a finding's detail.
+
+    "pool status is DEGRADED" is a verdict without a subject: the operator's
+    next question is always *which disk*, and only the topology answers it.
+    A REMOVED member reports no device name on a real appliance, so it is
+    identified by its ZFS state and vdev rather than invented.
+    """
+    bad = unhealthy_members(pool.get("topology"))
+    if not bad:
+        return ""
+    parts = [f"{m.get('device') or '<device gone>'} ({m.get('status')})" for m in bad]
+    return "; failed member(s): " + ", ".join(parts)
+
+
+def _pool_status_finding(name: str, status: str, healthy: Any,
+                         pool: dict | None = None) -> dict | None:
     """Flag a pool that is in a bad ZFS state, or flagged unhealthy while online."""
     if status in BAD_POOL_STATES:
         return _finding(
-            "critical", name, "pool not healthy", f"pool status is {status}",
+            "critical", name, "pool not healthy",
+            f"pool status is {status}{_bad_members(pool or {})}",
             "A vdev is faulted/offline; redundancy is lost or the pool is unavailable.",
             f"Inspect 'pool status {name}'; replace/reattach the failed disk, then scrub.",
         )
@@ -221,7 +239,7 @@ def pool_health_findings(pools: list[dict]) -> dict:
         summary.append({"pool": name, "status": status, "usedPercent": used_pct,
                         "errors": errors})
         for f in (
-            _pool_status_finding(name, status, p.get("healthy")),
+            _pool_status_finding(name, status, p.get("healthy"), p),
             _pool_error_finding(name, status, errors),
             _pool_capacity_finding(name, used_pct),
         ):

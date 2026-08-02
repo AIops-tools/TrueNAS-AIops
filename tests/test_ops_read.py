@@ -8,7 +8,7 @@ prior-state capture on the write ops. No real TrueNAS, no governance harness.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -325,7 +325,10 @@ def test_get_pool_encodes_id_and_adds_detail_fields():
         "encrypt": 0,
     }
     result = pool_ops.get_pool(conn, "tank")
-    conn.get.assert_called_once_with("/pool/id/tank")
+    # A NAME resolves through the collection: /pool/id/{id} takes the numeric
+    # id, so passing the name (all any caller has) used to 404. Live-found
+    # on TrueNAS 25.04.2.1, 2026-08-02.
+    assert call("/pool") in conn.get.mock_calls
     assert result["path"] == "/mnt/tank"
     assert result["encrypt"] == 0
     assert result["status"] == "ONLINE"
@@ -353,7 +356,7 @@ def test_pool_status_scan_and_vdev_count():
         "topology": {"data": [{"type": "RAIDZ2"}, {"type": "RAIDZ2"}]},
     }
     result = pool_ops.pool_status(conn, "tank")
-    conn.get.assert_called_once_with("/pool/id/tank")
+    assert call("/pool") in conn.get.mock_calls
     assert result["scan"]["function"] == "SCRUB"
     assert result["scan"]["state"] == "FINISHED"
     assert result["scan"]["percentage"] == 100
@@ -391,7 +394,7 @@ def test_scrub_status_fields():
         },
     }
     result = pool_ops.scrub_status(conn, "tank")
-    conn.get.assert_called_once_with("/pool/id/tank")
+    assert call("/pool") in conn.get.mock_calls
     assert result["state"] == "SCANNING"
     assert result["percentage"] == 42.5
     assert result["errors"] == 0
@@ -665,3 +668,53 @@ def test_list_disks_requests_the_pools_extra():
     _, kwargs = conn.get.call_args
     assert kwargs.get("params", {}).get("extra.pools") == "true"
     assert rows[0]["pool"] == "tank"
+
+
+@pytest.mark.unit
+def test_pool_reads_accept_a_name_and_still_encode_an_unknown_id():
+    """Regression (live-found 2026-08-02): every pool read took the numeric id
+    only, so the pool NAME — the single identifier a finding or an operator
+    actually has — returned 404 "the id may be stale". This tool's own RCA
+    advises `pool status tank`, which therefore could not work.
+
+    An id that is neither numeric nor a known name must still be
+    percent-encoded on the fallback path: resolving by name must not become a
+    way to smuggle a path segment.
+    """
+    conn = MagicMock(name="conn")
+
+    def _get(path, **kw):
+        if path == "/pool":
+            return [{"id": 1, "name": "tank", "status": "DEGRADED", "healthy": False}]
+        return {}
+
+    conn.get.side_effect = _get
+    assert pool_ops.get_pool(conn, "tank")["status"] == "DEGRADED"
+
+    conn.get.reset_mock()
+    pool_ops.get_pool(conn, "../../etc/passwd")
+    assert call("/pool/id/..%2F..%2Fetc%2Fpasswd") in conn.get.mock_calls
+
+
+@pytest.mark.unit
+def test_pool_status_names_the_failed_member_of_a_degraded_pool():
+    """A DEGRADED verdict without a subject is unactionable — the operator's
+    next question is always *which disk*. Shape taken from a real appliance,
+    where a yanked mirror member reports disk=null with status REMOVED.
+    """
+    conn = MagicMock(name="conn")
+    conn.get.return_value = {
+        "id": 1, "name": "tank", "status": "DEGRADED", "healthy": False,
+        "topology": {"data": [{"type": "MIRROR", "status": "DEGRADED", "children": [
+            {"disk": None, "status": "REMOVED",
+             "stats": {"read_errors": 0, "write_errors": 0, "checksum_errors": 0}},
+            {"disk": "vdb", "status": "ONLINE",
+             "stats": {"read_errors": 0, "write_errors": 0, "checksum_errors": 0}},
+        ]}]},
+    }
+    out = pool_ops.pool_status(conn, "1")
+    assert [m["status"] for m in out["members"]] == ["REMOVED", "ONLINE"]
+    assert len(out["unhealthyMembers"]) == 1
+    # A gone device has no name: absent stays null, it is not invented as "".
+    assert out["unhealthyMembers"][0]["device"] is None
+    assert out["members"][1]["device"] == "vdb"

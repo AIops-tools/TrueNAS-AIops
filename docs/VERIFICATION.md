@@ -3,6 +3,67 @@
 This document records what has and has not been validated against a real
 TrueNAS SCALE appliance, so the maturity claim is auditable.
 
+## 🔴 Round 2 — degraded-pool RCA (2026-08-02): two real bugs
+
+Closes the "multi-disk failure / degraded-pool RCA" gap named below. A **real
+fault was seeded** rather than inspected: a mirror member was yanked from the
+running appliance (`virsh detach-disk tn1 vdc --live`), which ZFS reported as
+`tank DEGRADED` with a `REMOVED` child. Two defects surfaced.
+
+### 1. Every pool read took the numeric id only — so the RCA's own advice failed
+
+`/pool/id/{id}` wants TrueNAS's numeric id, but the **name** is the only
+identifier a caller ever has. The pool-health finding reports `resource: tank`
+and advises `Inspect 'pool status tank'` — running exactly that returned
+`404 … the id may be stale`, sending the operator to hunt a staleness problem
+that does not exist. An agent copying the remediation string verbatim (the
+weak-model case this line designs for) could never succeed.
+
+**Fixed**: `get_pool` / `pool_status` / `scrub_status` resolve a numeric id
+*or* a name. An id that is neither is still percent-encoded on the fallback
+path, so name resolution cannot become a way to smuggle a path segment.
+
+### 2. A DEGRADED verdict could not say which disk failed
+
+`pool status` returned only `dataVdevs: 1`, and the finding said just
+`pool status is DEGRADED`. The operator's first question during a degradation is
+always *which disk*, and only `topology` answers it — the tool never read it.
+
+**Fixed**: `pool_status` now returns `members` (one row per leaf device: group,
+vdev, device, guid, ZFS state, read/write/checksum counters) and
+`unhealthyMembers`. The finding's detail names them. Verified live:
+
+```
+detail: pool status is DEGRADED; failed member(s): <device gone> (REMOVED)
+unhealthyMembers: [{vdev: MIRROR, device: null, guid: 1849966443203080812,
+                    status: REMOVED, readErrors: 0, ...}]
+```
+
+`device: null` is honest — a REMOVED member has no device name left, and the
+`guid` is what ZFS actually needs to online/replace it. Absent stays absent
+rather than being invented as `""`.
+
+### Recovery verified too
+
+Reattaching the disk and onlining it by guid returned `tank ONLINE`, both
+members `ONLINE`, `unhealthyMembers: 0`, and the RCA went quiet — so the
+analysis tracks recovery, not just failure.
+
+### ⛔ S.M.A.R.T. remains unverifiable in this lab — and now for a checked reason
+
+Not "untested": **impossible here**. `disk smart` returns `[]`, and so does the
+appliance's own `/smart/test/results` — the empty result is real. Asking TrueNAS
+to run a test proves why:
+
+```
+smartctl failed for disk vdb: /dev/vdb: Unable to detect device type
+```
+
+virtio block devices expose no SMART at all. A SATA disk cannot be hot-plugged
+into this VM, and even cold-plugged, QEMU would emulate a *healthy* drive —
+whereas the gap that matters is S.M.A.R.T. on **failing** media, which no
+emulator can produce. Closing this needs real hardware with a real bad disk.
+
 ## ✅ Live-verified against real TrueNAS SCALE 25.04.2.1 (2026-08-01)
 
 Verified end-to-end against a real TrueNAS SCALE 25.04.2.1 appliance (nested-KVM

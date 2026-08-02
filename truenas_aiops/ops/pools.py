@@ -35,23 +35,105 @@ def list_pools(conn: Any) -> list[dict]:
     return [_pool_summary(p) for p in as_list(conn.get("/pool"))]
 
 
-def get_pool(conn: Any, pool_id: str) -> dict:
-    """[READ] Return detail for a single pool by id."""
+def _resolve_pool(conn: Any, pool_id: str) -> dict:
+    """Fetch a pool by numeric id **or** by name.
+
+    ``/pool/id/{id}`` takes TrueNAS's numeric id, so passing a pool NAME —
+    which is what every caller actually has — 404s with "the id may be stale",
+    sending the operator to hunt a staleness problem that does not exist. That
+    is not hypothetical: this tool's own pool-health RCA reports
+    ``resource: tank`` and advises ``Inspect 'pool status tank'``, so following
+    its advice verbatim failed on a real appliance (TrueNAS 25.04.2.1,
+    2026-08-02). An agent reading a finding has the name, never the id.
+
+    A numeric id is still tried first, so nothing about existing callers
+    changes; the name lookup is the fallback.
+    """
+    if str(pool_id).isdigit():
+        pool = conn.get(f"/pool/id/{_seg(pool_id)}")
+        if isinstance(pool, dict):
+            return pool
+    for candidate in as_list(conn.get("/pool")):
+        if isinstance(candidate, dict) and str(candidate.get("name")) == str(pool_id):
+            return candidate
+    # Neither an id nor a known name: let the API produce the canonical 404.
     pool = conn.get(f"/pool/id/{_seg(pool_id)}")
-    summary = _pool_summary(pool if isinstance(pool, dict) else {})
-    if isinstance(pool, dict):
+    return pool if isinstance(pool, dict) else {}
+
+
+def get_pool(conn: Any, pool_id: str) -> dict:
+    """[READ] Return detail for a single pool by id **or** name."""
+    pool = _resolve_pool(conn, pool_id)
+    summary = _pool_summary(pool)
+    if pool:
+        # Only decorate a record that actually came back. An empty resolve means
+        # the response was not a pool at all, and answering with a full skeleton
+        # of nulls would read as "the pool exists and has no path".
         summary["path"] = opt_str(pool.get("path"), 256)
         summary["encrypt"] = pool.get("encrypt")
     return summary
 
 
+#: ZFS member states that mean this device is not carrying data right now.
+UNHEALTHY_MEMBER_STATES = frozenset(
+    {"REMOVED", "FAULTED", "DEGRADED", "OFFLINE", "UNAVAIL"}
+)
+
+
+def _members(topology: Any) -> list[dict]:
+    """Flatten a pool's topology into one row per leaf device.
+
+    A degraded pool's first question is *which disk*, and the answer is only in
+    ``topology``. Each row names the device, its ZFS state, and its error
+    counters, so the caller never has to walk the tree itself.
+    """
+    rows: list[dict] = []
+    if not isinstance(topology, dict):
+        return rows
+    for group_name, group in topology.items():
+        for vdev in group if isinstance(group, list) else []:
+            if not isinstance(vdev, dict):
+                continue
+            children = vdev.get("children") or []
+            leaves = children if isinstance(children, list) and children else [vdev]
+            for leaf in leaves:
+                if not isinstance(leaf, dict):
+                    continue
+                stats = leaf.get("stats") if isinstance(leaf.get("stats"), dict) else {}
+                rows.append({
+                    "group": opt_str(group_name, 32),
+                    "vdev": opt_str(vdev.get("type"), 32),
+                    # A REMOVED member reports disk=null on a real appliance —
+                    # the device is gone, so there is no name to give. Absent
+                    # stays absent rather than becoming "" (null-vs-empty).
+                    "device": opt_str(leaf.get("disk"), 128),
+                    "guid": opt_str(leaf.get("guid"), 64),
+                    "status": opt_str(leaf.get("status"), 32),
+                    "readErrors": stats.get("read_errors"),
+                    "writeErrors": stats.get("write_errors"),
+                    "checksumErrors": stats.get("checksum_errors"),
+                })
+    return rows
+
+
+def unhealthy_members(topology: Any) -> list[dict]:
+    """Members whose ZFS state means they are not carrying data."""
+    return [m for m in _members(topology)
+            if (m.get("status") or "") in UNHEALTHY_MEMBER_STATES]
+
+
 def pool_status(conn: Any, pool_id: str) -> dict:
-    """[READ] Return the health/scan status of a single pool (topology summary)."""
-    pool = conn.get(f"/pool/id/{_seg(pool_id)}")
-    if not isinstance(pool, dict):
+    """[READ] Return the health/scan status of a single pool (topology summary).
+
+    ``pool_id`` accepts the numeric id **or** the pool name — see
+    :func:`_resolve_pool`.
+    """
+    pool = _resolve_pool(conn, pool_id)
+    if not pool:
         return {}
     scan = pool.get("scan") or {}
     topology = pool.get("topology") or {}
+    members = _members(topology)
     return {
         "id": pool.get("id"),
         "name": opt_str(pool.get("name"), 128),
@@ -63,12 +145,17 @@ def pool_status(conn: Any, pool_id: str) -> dict:
             "percentage": scan.get("percentage") if isinstance(scan, dict) else None,
         },
         "dataVdevs": len(topology.get("data", [])) if isinstance(topology, dict) else None,
+        # Without these a DEGRADED verdict is unactionable: the operator is told
+        # the pool is broken and left to find the failed device by hand.
+        "members": members,
+        "unhealthyMembers": [m for m in members
+                             if (m.get("status") or "") in UNHEALTHY_MEMBER_STATES],
     }
 
 
 def scrub_status(conn: Any, pool_id: str) -> dict:
-    """[READ] Return the current scrub scan state for a pool."""
-    pool = conn.get(f"/pool/id/{_seg(pool_id)}")
+    """[READ] Return the current scrub scan state for a pool (id or name)."""
+    pool = _resolve_pool(conn, pool_id)
     scan = pool.get("scan") or {} if isinstance(pool, dict) else {}
     if not isinstance(scan, dict):
         scan = {}

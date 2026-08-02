@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Pool reads accept a pool name, not just the numeric id.** `/pool/id/{id}` takes TrueNAS's numeric id, so `get_pool` / `pool_status` / `scrub_status` returned `404 … the id may be stale` for a pool *name* — the only identifier a caller ever has. This tool's own pool-health finding reports `resource: tank` and advises `Inspect 'pool status tank'`, which therefore could not work. An id that is neither numeric nor a known name is still percent-encoded on the fallback path.
+- **A DEGRADED pool now names the failed member.** `pool_status` returns `members` (group, vdev, device, guid, ZFS state, read/write/checksum counters) and `unhealthyMembers`, and the pool-health finding's detail lists them. Previously the tool reported only that the pool was DEGRADED, leaving "which disk?" — the first question during a degradation — unanswered. Live-verified by yanking a mirror member from a real TrueNAS SCALE 25.04.2.1 appliance, and again on recovery.
+
 ## v0.6.0 — 2026-07-21
 
 ### Changed (BREAKING)
