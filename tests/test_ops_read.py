@@ -25,42 +25,89 @@ from truenas_aiops.ops import system as sys_ops
 # replication.py
 # --------------------------------------------------------------------------- #
 @pytest.mark.unit
-def test_list_replication_endpoint_and_state_extraction():
+def test_list_replication_reports_the_replication_state_not_the_job_state():
+    """Payloads copied from a live TrueNAS SCALE 25.04.2.1 appliance.
+
+    A replication task carries its own top-level ``state``; ``job`` is the
+    generic job record and speaks a different vocabulary. Reading ``job``
+    reported ``SUCCESS`` for a task the appliance calls ``FINISHED``.
+    """
     conn = MagicMock(name="conn")
     conn.get.return_value = [
         {
-            "id": 3,
-            "name": "nightly-repl",
+            "id": 1,
+            "name": "tn1-to-tn26",
             "direction": "PUSH",
             "transport": "SSH",
             "enabled": True,
-            "job": {"state": "FINISHED", "progress": {"percent": 100}},
+            "state": {
+                "state": "FINISHED",
+                "datetime": {"$date": 1785678883000},
+                "warnings": [],
+                "last_snapshot": "tank/src@repl1",
+            },
+            "job": {"id": 67, "state": "SUCCESS", "method": "replication.run"},
         }
     ]
     rows = repl_ops.list_replication(conn)
     conn.get.assert_called_once_with("/replication")
-    assert rows == [
-        {
-            "id": 3,
-            "name": "nightly-repl",
-            "direction": "PUSH",
-            "transport": "SSH",
-            "enabled": True,
-            "state": "FINISHED",
-        }
-    ]
+    assert rows[0]["state"] == "FINISHED"
+    assert rows[0]["lastSnapshot"] == "tank/src@repl1"
+    assert rows[0]["lastRun"] == "1785678883000"
+    assert rows[0]["error"] is None
 
 
 @pytest.mark.unit
-def test_list_replication_handles_missing_and_nondict_job():
+def test_list_replication_never_run_task_is_pending_not_null():
+    """A task created and never run has state PENDING and no job at all.
+
+    This is the common case — every task on a freshly booted appliance — and it
+    used to be reported as ``null``, i.e. "unknown", for a state the appliance
+    states plainly.
+    """
     conn = MagicMock(name="conn")
     conn.get.return_value = [
-        {"id": 1, "name": "no-job"},  # no embedded job at all
-        {"id": 2, "name": "bad-job", "job": "not-a-dict"},  # job wrong type
+        {"id": 2, "name": "never-run", "direction": "PUSH", "transport": "SSH",
+         "enabled": True, "state": {"state": "PENDING"}, "job": None},
     ]
     rows = repl_ops.list_replication(conn)
-    assert rows[0]["state"] is None  # missing job -> absent state, not ""
+    assert rows[0]["state"] == "PENDING"
+    assert rows[0]["lastSnapshot"] is None
+
+
+@pytest.mark.unit
+def test_list_replication_keeps_the_appliance_error_sentence():
+    """A failed replication's ``error`` names what to fix — do not drop it."""
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [
+        {"id": 3, "name": "will-fail", "direction": "PUSH", "transport": "SSH",
+         "enabled": True,
+         "state": {
+             "state": "ERROR",
+             "datetime": {"$date": 1785678975000},
+             "error": "Dataset 'tank/empty' does not have any matching "
+                      "snapshots to replicate.",
+             "last_snapshot": None,
+         },
+         "job": {"id": 68, "state": "FAILED"}},
+    ]
+    rows = repl_ops.list_replication(conn)
+    assert rows[0]["state"] == "ERROR"
+    assert "matching snapshots to replicate" in rows[0]["error"]
+
+
+@pytest.mark.unit
+def test_list_replication_falls_back_to_job_when_state_is_absent():
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [
+        {"id": 1, "name": "no-state-no-job"},  # neither field present
+        {"id": 2, "name": "bad-job", "job": "not-a-dict"},  # job wrong type
+        {"id": 3, "name": "job-only", "job": {"state": "RUNNING"}},
+    ]
+    rows = repl_ops.list_replication(conn)
+    assert rows[0]["state"] is None  # nothing to report -> null, not ""
     assert rows[1]["state"] is None  # non-dict job -> _job_state returns {}
+    assert rows[2]["state"] == "RUNNING"
 
 
 @pytest.mark.unit
@@ -82,6 +129,27 @@ def test_list_cloudsync_endpoint_and_fields():
     assert rows[0]["path"] == "/mnt/tank/data"
     assert rows[0]["enabled"] is False
     assert rows[0]["state"] == "RUNNING"
+
+
+@pytest.mark.unit
+def test_cloudsync_state_comes_from_the_job_unlike_replication():
+    """Payload copied from a live 25.04.2.1 cloudsync task that ran to SUCCESS.
+
+    cloudsync records carry **no** top-level ``state`` key at all — verified on
+    a real appliance before and after a successful run — so the job record is
+    the only outcome signal and reading it is correct here. This pins the
+    asymmetry with replication so a future "unify these two" refactor fails
+    loudly instead of silently reporting null for every cloud-sync task.
+    """
+    conn = MagicMock(name="conn")
+    conn.get.return_value = [
+        {"id": 1, "description": "src-to-minio", "direction": "PUSH",
+         "path": "/mnt/tank/src", "enabled": True,
+         "job": {"id": 71, "state": "SUCCESS", "method": "cloudsync.sync"}},
+    ]
+    rows = repl_ops.list_cloudsync(conn)
+    assert rows[0]["state"] == "SUCCESS"
+    assert "lastSnapshot" not in rows[0]  # replication-only enrichment
 
 
 @pytest.mark.unit

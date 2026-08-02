@@ -3,6 +3,67 @@
 This document records what has and has not been validated against a real
 TrueNAS SCALE appliance, so the maturity claim is auditable.
 
+## 🔴 Replication and cloud-sync, against real targets (2026-08-02): one real bug
+
+The replication surface had only ever been read on appliances with **zero
+tasks** — an empty list, which proves nothing. This round stood up real ones: a
+**tn1 (25.04.2.1) → tn26 (26.0.0-BETA.2) SSH replication** that actually
+transferred a snapshot, and a **cloud-sync to a real MinIO S3 target** that
+actually uploaded a file.
+
+### The bug: a replication task's state came from the wrong record
+
+`list_replication` reported `job.state`. On a real appliance that is wrong
+twice over:
+
+| task | what the appliance reports | what the tool reported |
+|---|---|---|
+| ran successfully | `state.state = FINISHED` | `SUCCESS` |
+| created, never run | `state.state = PENDING`, `job = null` | **`null`** |
+| failed | `state.state = ERROR` + an `error` sentence | `FAILED`, sentence dropped |
+
+`replication.query` injects a top-level `state` dict from the moment a task is
+created — `{"state", "datetime", "error", "last_snapshot"}` — while `job` is the
+generic job record: absent until a run is triggered in the middleware's current
+lifetime, and speaking a different vocabulary when present. So the common case
+(any task on a freshly booted appliance) reported `null` — "unknown" for a state
+the appliance states plainly — and no value the tool ever produced matched what
+the appliance and its own UI show.
+
+The `error` sentence is the diagnostic: *"Dataset 'tank/empty' does not have any
+matching snapshots to replicate."* It was being discarded. Rows now carry
+`error`, `lastSnapshot` and `lastRun` as well.
+
+### cloud-sync is deliberately NOT changed — it was already right
+
+The obvious "fix both the same way" would have broken it. A `cloudsync` record
+has **no top-level `state` key at all** — checked on the same appliance before
+and after a run that reached `SUCCESS` — so the job record genuinely is its only
+outcome signal. A regression test now pins the asymmetry so a future "unify
+these two" refactor fails loudly instead of silently reporting `null` for every
+cloud-sync task.
+
+> The two endpoints were verified **separately** rather than generalising from
+> the first. That is the whole reason the cloud-sync path survived intact.
+
+Both `replication.query` and `cloudsync.query` keep their names on 25.04 **and**
+26 (checked against each appliance's `core.get_methods`), so unlike
+`zfs.snapshot.*` → `pool.snapshot.*` there is no rename to route around here.
+
+### Lab recipe for a re-run
+
+- `keychaincredential.remote_ssh_semiautomatic_setup` takes `password`, not
+  `admin_password`, and has no `cipher` field on 25.04 — read the accepted
+  params out of `core.get_methods` rather than guessing.
+- The destination needs its **ssh service running**; `service.update` on 26
+  requires `enable` and rejects `rootlogin`, and start is `service.control`
+  (`START`) on 26 vs `service.start` on 25.04.
+- A cloud-sync target is one `docker run quay.io/minio/minio server /data` plus
+  `mc mb`; point the TrueNAS S3 credential at `http://<kvm-host>:9000` with
+  `skip_region: true`.
+- To put a file in a dataset, install a pubkey via `user.update` +
+  `sshpubkey` (password ssh is off by default) and write it with `sudo -S`.
+
 ## 🟢 Verified on a real TrueNAS **26** — and it found four bugs (2026-08-02)
 
 The transport below was built and cross-checked on 25.04. Standing up a real
@@ -223,6 +284,8 @@ write landed an audit row.
 Not covered: multi-disk failure/degraded-pool RCA, S.M.A.R.T. on real failing
 media, replication/cloudsync against real targets, and the **WebSocket JSON-RPC
 transport TrueNAS 26 requires** (this tool still speaks REST — see below).
+**All of those except S.M.A.R.T. have since been covered** — replication and
+cloud-sync by the round at the top of this file, the rest by the rounds below.
 
 > **Lab recipe:** TrueNAS ships no answerfile, so the ncurses installer must be
 > driven. Two things were mandatory: **UEFI with Secure Boot OFF** (Ubuntu's
