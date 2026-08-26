@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "truenas-aiops": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "truenas-aiops==0.10.0",
+        "truenas-aiops-mcp"
+      ]
+    }
+  }
+}

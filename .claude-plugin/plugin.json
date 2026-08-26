@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "truenas-aiops",
+  "displayName": "TrueNAS AIops",
+  "version": "0.10.0",
+  "description": "Governed TrueNAS SCALE storage ops — 25 MCP tools with audit, budget, undo guards.",
+  "author": {
+    "name": "Wei Zhou",
+    "email": "zhouwei008@gmail.com",
+    "url": "https://github.com/AIops-tools"
+  },
+  "homepage": "https://github.com/AIops-tools/TrueNAS-AIops",
+  "repository": "https://github.com/AIops-tools/TrueNAS-AIops",
+  "license": "MIT",
+  "keywords": [
+    "aiops",
+    "mcp",
+    "governance",
+    "truenas"
+  ]
+}
