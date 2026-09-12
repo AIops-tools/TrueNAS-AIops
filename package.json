@@ -1,6 +1,6 @@
 {
   "name": "@aiops-tools/truenas-aiops",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "Governed TrueNAS SCALE storage ops \u2014 25 MCP tools with audit, budget, undo guards.",
   "private": true,
   "license": "MIT",
