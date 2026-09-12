@@ -17,7 +17,7 @@ installer:
 argument-hint: "[pool/dataset/snapshot id or describe your TrueNAS task]"
 allowed-tools:
   - Bash
-metadata: {"openclaw":{"requires":{"env":["TRUENAS_AIOPS_CONFIG"],"bins":["truenas-aiops"],"config":["~/.truenas-aiops/config.yaml","~/.truenas-aiops/secrets.enc"]},"optional":{"env":["TRUENAS_AIOPS_MASTER_PASSWORD"]},"primaryEnv":"TRUENAS_AIOPS_CONFIG","homepage":"https://github.com/AIops-tools/TrueNAS-AIops","emoji":"🗄️","os":["macos","linux"]}}
+metadata: {"openclaw":{"requires":{"anyBins":["truenas-aiops","uvx"]},"optional":{"env":["TRUENAS_AIOPS_CONFIG","TRUENAS_AIOPS_MASTER_PASSWORD"]},"homepage":"https://github.com/AIops-tools/TrueNAS-AIops","emoji":"🗄️","os":["macos","linux"]}}
 compatibility: >
   Standalone, self-governed TrueNAS SCALE storage operations. The governance harness (audit, policy, token/runaway budget, undo, risk-tiers) is bundled in the package — no external skill-family dependency.
   All write operations are audited to a local SQLite DB under ~/.truenas-aiops/ (relocatable via TRUENAS_AIOPS_HOME).

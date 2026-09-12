@@ -1,0 +1,20 @@
+{
+  "name": "@aiops-tools/truenas-aiops",
+  "version": "0.11.0",
+  "description": "Governed TrueNAS SCALE storage ops — 25 MCP tools with audit, budget, undo guards.",
+  "private": true,
+  "license": "MIT",
+  "homepage": "https://github.com/AIops-tools/TrueNAS-AIops",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AIops-tools/TrueNAS-AIops.git"
+  },
+  "openclaw": {
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2"
+    },
+    "build": {
+      "openclawVersion": "2026.3.24-beta.2"
+    }
+  }
+}

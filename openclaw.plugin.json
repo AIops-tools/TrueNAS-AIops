@@ -1,0 +1,24 @@
+{
+  "id": "truenas-aiops",
+  "name": "TrueNAS AIops",
+  "description": "Governed TrueNAS SCALE storage ops — 25 MCP tools with audit, budget, undo guards.",
+  "skills": [
+    "./skills"
+  ],
+  "mcpServers": {
+    "truenas-aiops": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "truenas-aiops==0.11.0",
+        "truenas-aiops-mcp"
+      ]
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
