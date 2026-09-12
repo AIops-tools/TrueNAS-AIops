@@ -63,6 +63,13 @@ truenas-aiops init       # interactive wizard: connection + encrypted API key
 truenas-aiops doctor
 ```
 
+Or as an OpenClaw plugin, which installs this skill and its MCP server together:
+
+```bash
+openclaw plugins install clawhub:@aiops-tools/truenas-aiops
+openclaw skills info truenas-aiops          # expect: Visible to model: yes
+```
+
 ## When to Use This Skill
 
 - Triage a TrueNAS appliance (`overview`): pool capacity/health, alerts, running services
