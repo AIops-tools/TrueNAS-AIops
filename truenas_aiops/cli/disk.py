@@ -6,7 +6,7 @@ import json
 
 import typer
 
-from truenas_aiops.cli._common import TargetOption, cli_errors, console, get_connection
+from truenas_aiops.cli._common import TargetOption, audited, cli_errors, console, get_connection
 from truenas_aiops.ops import disks
 
 disk_app = typer.Typer(help="Disk and S.M.A.R.T. operations.", no_args_is_help=True)
@@ -14,6 +14,7 @@ disk_app = typer.Typer(help="Disk and S.M.A.R.T. operations.", no_args_is_help=T
 
 @disk_app.command("list")
 @cli_errors
+@audited
 def disk_list(target: TargetOption = None) -> None:
     """List physical disks (name, serial, model, size, pool)."""
     conn, _ = get_connection(target)
@@ -22,6 +23,7 @@ def disk_list(target: TargetOption = None) -> None:
 
 @disk_app.command("smart")
 @cli_errors
+@audited
 def disk_smart(target: TargetOption = None) -> None:
     """Show recent S.M.A.R.T. self-test results per disk."""
     conn, _ = get_connection(target)

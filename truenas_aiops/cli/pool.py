@@ -11,6 +11,7 @@ from rich.table import Table
 from mcp_server.tools import pools as gov
 from truenas_aiops.cli._common import (
     TargetOption,
+    audited,
     checked,
     cli_errors,
     console,
@@ -24,6 +25,7 @@ _console = Console()
 
 @pool_app.command("list")
 @cli_errors
+@audited
 def pool_list(target: TargetOption = None) -> None:
     """List ZFS pools (id, name, status, healthy, free)."""
     conn, _ = get_connection(target)
@@ -38,6 +40,7 @@ def pool_list(target: TargetOption = None) -> None:
 
 @pool_app.command("get")
 @cli_errors
+@audited
 def pool_get(pool_id: str, target: TargetOption = None) -> None:
     """Show detail for one pool."""
     conn, _ = get_connection(target)
@@ -47,6 +50,7 @@ def pool_get(pool_id: str, target: TargetOption = None) -> None:
 
 @pool_app.command("status")
 @cli_errors
+@audited
 def pool_status(pool_id: str, target: TargetOption = None) -> None:
     """Show health and scan/topology status for one pool."""
     conn, _ = get_connection(target)
@@ -55,6 +59,7 @@ def pool_status(pool_id: str, target: TargetOption = None) -> None:
 
 @pool_app.command("scrub-status")
 @cli_errors
+@audited
 def pool_scrub_status(pool_id: str, target: TargetOption = None) -> None:
     """Show the current scrub scan state for a pool."""
     conn, _ = get_connection(target)
@@ -63,6 +68,7 @@ def pool_scrub_status(pool_id: str, target: TargetOption = None) -> None:
 
 @pool_app.command("capacity")
 @cli_errors
+@audited
 def pool_capacity(target: TargetOption = None) -> None:
     """Capacity summary per pool (size/allocated/free/used%)."""
     conn, _ = get_connection(target)

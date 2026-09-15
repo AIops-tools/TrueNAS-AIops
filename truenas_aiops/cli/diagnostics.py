@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from truenas_aiops.cli._common import TargetOption, cli_errors, get_connection
+from truenas_aiops.cli._common import TargetOption, audited, cli_errors, get_connection
 from truenas_aiops.ops import alerts as alert_ops
 from truenas_aiops.ops import diagnostics as diag
 from truenas_aiops.ops._util import as_list
@@ -41,6 +41,7 @@ def _print_findings(findings: list[dict]) -> None:
 
 @diagnose_app.command("pool-health")
 @cli_errors
+@audited
 def diagnose_pool_health(target: TargetOption = None) -> None:
     """Flag pools by ZFS state, error counters, and capacity (worst first)."""
     conn, _ = get_connection(target)
@@ -52,6 +53,7 @@ def diagnose_pool_health(target: TargetOption = None) -> None:
 
 @diagnose_app.command("alerts")
 @cli_errors
+@audited
 def diagnose_alerts(target: TargetOption = None) -> None:
     """Surface active alerts by level and datasets near their capacity ceiling."""
     conn, _ = get_connection(target)

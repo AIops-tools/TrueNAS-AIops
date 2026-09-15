@@ -11,6 +11,7 @@ from mcp_server.tools import datasets as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
+    audited,
     checked,
     cli_errors,
     console,
@@ -25,6 +26,7 @@ _console = Console()
 
 @dataset_app.command("list")
 @cli_errors
+@audited
 def dataset_list(target: TargetOption = None) -> None:
     """List ZFS datasets (id, name, type, used/available)."""
     conn, _ = get_connection(target)
@@ -33,6 +35,7 @@ def dataset_list(target: TargetOption = None) -> None:
 
 @dataset_app.command("get")
 @cli_errors
+@audited
 def dataset_get(dataset_id: str, target: TargetOption = None) -> None:
     """Show detail for one dataset (e.g. 'tank/data')."""
     conn, _ = get_connection(target)

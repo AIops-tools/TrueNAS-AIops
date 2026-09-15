@@ -10,6 +10,7 @@ from mcp_server.tools import services as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
+    audited,
     checked,
     cli_errors,
     console,
@@ -24,6 +25,7 @@ service_app = typer.Typer(help="System service operations.", no_args_is_help=Tru
 
 @service_app.command("list")
 @cli_errors
+@audited
 def service_list(target: TargetOption = None) -> None:
     """List system services (name, state, enable)."""
     conn, _ = get_connection(target)

@@ -12,6 +12,7 @@ from mcp_server.tools import snapshots as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
+    audited,
     checked,
     cli_errors,
     console,
@@ -36,6 +37,7 @@ LimitOption = Annotated[
 
 @snapshot_app.command("list")
 @cli_errors
+@audited
 def snapshot_list(
     dataset: DatasetOption = None,
     limit: LimitOption = snapshots.DEFAULT_SNAPSHOT_LIMIT,
