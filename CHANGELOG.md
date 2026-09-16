@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.11.5 — 2026-09-17
 
 ### Fixed
 - The truncation row attributed a `snapshots` list to `undo_list`, which returns `undos`.
