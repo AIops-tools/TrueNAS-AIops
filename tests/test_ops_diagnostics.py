@@ -16,7 +16,7 @@ import pytest
 import truenas_aiops.governance.audit as audit_mod
 import truenas_aiops.governance.policy as policy_mod
 import truenas_aiops.governance.undo as undo_mod
-from mcp_server.tools import diagnostics as diag_tools
+from truenas_aiops.mcp_server.tools import diagnostics as diag_tools
 from truenas_aiops.ops import diagnostics as diag
 
 

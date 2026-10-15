@@ -8,7 +8,6 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from mcp_server.tools import pools as gov
 from truenas_aiops.cli._common import (
     TargetOption,
     audited,
@@ -17,6 +16,7 @@ from truenas_aiops.cli._common import (
     console,
     get_connection,
 )
+from truenas_aiops.mcp_server.tools import pools as gov
 from truenas_aiops.ops import pools
 
 pool_app = typer.Typer(help="ZFS pool operations.", no_args_is_help=True)

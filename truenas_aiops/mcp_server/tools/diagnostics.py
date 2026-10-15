@@ -8,8 +8,8 @@ without a live NAS, and the collection stays here where the connection is.
 
 from typing import Optional
 
-from mcp_server._shared import _get_connection, mcp, tool_errors
 from truenas_aiops.governance import governed_tool
+from truenas_aiops.mcp_server._shared import _get_connection, mcp, tool_errors
 from truenas_aiops.ops import alerts as alert_ops
 from truenas_aiops.ops import diagnostics as diag
 from truenas_aiops.ops._util import as_list

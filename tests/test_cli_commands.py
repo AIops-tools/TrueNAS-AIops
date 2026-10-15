@@ -4,7 +4,7 @@ operate against an isolated encrypted store.
 
 Read commands get their connection from ``_common.get_connection`` (re-imported
 into each CLI module), so we monkeypatch the per-module reference to a
-MagicMock. Write commands delegate to ``mcp_server.tools.*`` — those are covered
+MagicMock. Write commands delegate to ``truenas_aiops.mcp_server.tools.*`` — those are covered
 for audit elsewhere, so here we only assert the CLI branch/flow.
 """
 
@@ -164,7 +164,7 @@ def test_dataset_create_dry_run_mutates_nothing_but_is_audited(gov_home, monkeyp
     assertion means something. The superseded rule asserted the twin was never
     called at all, which is precisely what made the preview's guards dead code.
     """
-    import mcp_server.tools.datasets as gov_datasets
+    import truenas_aiops.mcp_server.tools.datasets as gov_datasets
 
     conn = MagicMock(name="conn")
     monkeypatch.setattr(gov_datasets, "_get_connection", lambda target=None: conn)
@@ -293,7 +293,7 @@ def test_undo_list_and_apply_flow(gov_home, monkeypatch):
     conn = MagicMock(name="conn")
     conn.get.return_value = []
     monkeypatch.setattr(
-        "mcp_server.tools.pools._get_connection", lambda target=None: conn
+        "truenas_aiops.mcp_server.tools.pools._get_connection", lambda target=None: conn
     )
     monkeypatch.setenv("TRUENAS_AUDIT_APPROVED_BY", "pytest")
     r = runner.invoke(app, ["undo", "apply", uid], input="y\ny\n")

@@ -6,7 +6,6 @@ import json
 
 import typer
 
-from mcp_server.tools import services as gov
 from truenas_aiops.cli._common import (
     DryRunOption,
     TargetOption,
@@ -18,6 +17,7 @@ from truenas_aiops.cli._common import (
     dry_run_preview,
     get_connection,
 )
+from truenas_aiops.mcp_server.tools import services as gov
 from truenas_aiops.ops import services
 
 service_app = typer.Typer(help="System service operations.", no_args_is_help=True)

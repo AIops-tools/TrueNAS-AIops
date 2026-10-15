@@ -128,7 +128,7 @@ def test_real_write_tool_persists_priorstate_undo(gov_home, monkeypatch):
     conn = MagicMock(name="conn")
     conn.post.return_value = {"id": "tank/data@snap1"}
 
-    from mcp_server.tools import snapshots as gov
+    from truenas_aiops.mcp_server.tools import snapshots as gov
 
     monkeypatch.setattr(gov, "_get_connection", lambda target=None: conn)
     result = gov.snapshot_create(dataset="tank/data", name="snap1")

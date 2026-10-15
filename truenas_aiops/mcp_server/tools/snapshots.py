@@ -7,8 +7,8 @@ inverse ``snapshot_delete`` descriptor. ``snapshot_delete`` is irreversible
 
 from typing import Optional
 
-from mcp_server._shared import _get_connection, mcp, tool_errors
 from truenas_aiops.governance import governed_tool
+from truenas_aiops.mcp_server._shared import _get_connection, mcp, tool_errors
 from truenas_aiops.ops import snapshots as ops
 
 

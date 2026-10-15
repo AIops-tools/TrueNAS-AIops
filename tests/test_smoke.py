@@ -78,18 +78,18 @@ def test_all_modules_import():
         "truenas_aiops.cli.system",
         "truenas_aiops.cli.overview",
         "truenas_aiops.cli.doctor",
-        "mcp_server.server",
-        "mcp_server._shared",
-        "mcp_server.tools.system",
-        "mcp_server.tools.pools",
-        "mcp_server.tools.datasets",
-        "mcp_server.tools.diagnostics",
-        "mcp_server.tools.snapshots",
-        "mcp_server.tools.disks",
-        "mcp_server.tools.alerts",
-        "mcp_server.tools.services",
-        "mcp_server.tools.replication",
-        "mcp_server.tools.overview",
+        "truenas_aiops.mcp_server.server",
+        "truenas_aiops.mcp_server._shared",
+        "truenas_aiops.mcp_server.tools.system",
+        "truenas_aiops.mcp_server.tools.pools",
+        "truenas_aiops.mcp_server.tools.datasets",
+        "truenas_aiops.mcp_server.tools.diagnostics",
+        "truenas_aiops.mcp_server.tools.snapshots",
+        "truenas_aiops.mcp_server.tools.disks",
+        "truenas_aiops.mcp_server.tools.alerts",
+        "truenas_aiops.mcp_server.tools.services",
+        "truenas_aiops.mcp_server.tools.replication",
+        "truenas_aiops.mcp_server.tools.overview",
     ):
         importlib.import_module(name)
 
@@ -158,7 +158,7 @@ def test_cli_leaf_help_triggers_lazy_imports():
 
 @pytest.mark.unit
 def test_mcp_list_tools_exposes_expected_tools():
-    from mcp_server.server import mcp
+    from truenas_aiops.mcp_server.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
     names = {t.name for t in tools}
@@ -168,7 +168,7 @@ def test_mcp_list_tools_exposes_expected_tools():
 @pytest.mark.unit
 def test_registered_tool_count_is_pinned():
     """Drift guard: the advertised count includes generic governance tools."""
-    from mcp_server import _shared
+    from truenas_aiops.mcp_server import _shared
 
     assert len(_shared.mcp._tool_manager._tools) == 25, (
         "tool count changed — update README/SKILL/server.json too"
@@ -178,7 +178,7 @@ def test_registered_tool_count_is_pinned():
 @pytest.mark.unit
 def test_every_mcp_tool_is_governed_by_harness():
     """Every registered tool callable must carry the @governed_tool marker."""
-    from mcp_server import _shared
+    from truenas_aiops.mcp_server import _shared
 
     tool_objs = _shared.mcp._tool_manager._tools
     assert EXPECTED_TOOLS <= set(tool_objs), "tool registry incomplete"
@@ -193,7 +193,7 @@ def test_every_mcp_tool_is_governed_by_harness():
 @pytest.mark.unit
 def test_snapshot_delete_is_high_risk():
     """The data-destroying snapshot delete must be tagged high risk."""
-    from mcp_server.tools import snapshots as snap_tools
+    from truenas_aiops.mcp_server.tools import snapshots as snap_tools
 
     assert snap_tools.snapshot_delete._risk_level == "high"
     assert snap_tools.snapshot_create._risk_level == "medium"
@@ -203,7 +203,7 @@ def test_snapshot_delete_is_high_risk():
 def test_write_tool_records_undo_token_via_harness(monkeypatch):
     """snapshot_create through the harness records an inverse snapshot_delete."""
     import truenas_aiops.governance.undo as undo_mod
-    from mcp_server.tools import snapshots as snap_tools
+    from truenas_aiops.mcp_server.tools import snapshots as snap_tools
 
     conn = MagicMock(name="conn")
     conn.post.return_value = {"id": "tank/data@snap1"}
@@ -255,7 +255,7 @@ def test_dry_run_gates_destructive_cli(monkeypatch):
     through it, patching the CLI module's own get_connection would leave this
     assertion vacuous (the dry-run branch never reaches it).
     """
-    import mcp_server.tools.snapshots as gov_snapshots
+    import truenas_aiops.mcp_server.tools.snapshots as gov_snapshots
     from truenas_aiops.cli import app
 
     conn = MagicMock(name="conn")
@@ -407,7 +407,7 @@ def test_risk_level_agrees_with_read_write_docstring_tag():
     16 such mislabels line-wide once, so it is kept even though read-only mode
     (its original motivation) is gone.
     """
-    from mcp_server import server
+    from truenas_aiops.mcp_server import server
 
     untagged, mismatched = [], []
     for name, tool in server.mcp._tool_manager._tools.items():

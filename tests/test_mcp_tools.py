@@ -16,15 +16,15 @@ import pytest
 import truenas_aiops.governance.audit as audit_mod
 import truenas_aiops.governance.policy as policy_mod
 import truenas_aiops.governance.undo as undo_mod
-from mcp_server.tools import alerts as alert_tools
-from mcp_server.tools import datasets as ds_tools
-from mcp_server.tools import disks as disk_tools
-from mcp_server.tools import overview as ov_tools
-from mcp_server.tools import pools as pool_tools
-from mcp_server.tools import replication as repl_tools
-from mcp_server.tools import services as svc_tools
-from mcp_server.tools import snapshots as snap_tools
-from mcp_server.tools import system as sys_tools
+from truenas_aiops.mcp_server.tools import alerts as alert_tools
+from truenas_aiops.mcp_server.tools import datasets as ds_tools
+from truenas_aiops.mcp_server.tools import disks as disk_tools
+from truenas_aiops.mcp_server.tools import overview as ov_tools
+from truenas_aiops.mcp_server.tools import pools as pool_tools
+from truenas_aiops.mcp_server.tools import replication as repl_tools
+from truenas_aiops.mcp_server.tools import services as svc_tools
+from truenas_aiops.mcp_server.tools import snapshots as snap_tools
+from truenas_aiops.mcp_server.tools import system as sys_tools
 
 
 @pytest.fixture
