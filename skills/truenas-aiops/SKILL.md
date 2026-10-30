@@ -31,6 +31,8 @@ compatibility: >
 
 # TrueNAS AIops
 
+> **Audit availability:** Real writes require a durable audit intent. Reads and previews can continue if audit storage fails; check the warning and audit health before relying on their audit trail.
+
 > **Disclaimer**: This is a community-maintained open-source project and is **not affiliated with, endorsed by, or sponsored by iXsystems or the TrueNAS project.** "TrueNAS" is a trademark of its owner. Source code is publicly auditable at [github.com/AIops-tools/TrueNAS-AIops](https://github.com/AIops-tools/TrueNAS-AIops) under the MIT license.
 
 Governed TrueNAS SCALE storage operations — **25 MCP tools**, every one wrapped with the bundled `@governed_tool` harness: a local unified audit log under `~/.truenas-aiops/`, policy engine, token/runaway budget guard, undo-token recording, and descriptive risk tiers. The TrueNAS API key is stored **encrypted** (`~/.truenas-aiops/secrets.enc`, Fernet + scrypt) — never plaintext on disk.
@@ -213,7 +215,7 @@ limited-privilege account and writes then fail at the appliance). There is no
 read-only switch, policy file, or approval gate.
 
 - API key stored **encrypted** in `~/.truenas-aiops/secrets.enc` (Fernet/AES-128 + scrypt key derivation; chmod 600) — never plaintext on disk; the master password is never stored, only a per-store salt + ciphertext.
-- **Audit is the guarantee, and it is not bypassable.** Every operation — MCP and CLI alike — is logged to `~/.truenas-aiops/audit.db` (relocatable via `TRUENAS_AIOPS_HOME`): params (secrets redacted), result, status, duration, and the risk tier. The CLI writes the same row the MCP path does.
+- **Audit is the guarantee, and it is not bypassable.** Every operation — MCP and CLI alike — is logged to `~/.truenas-aiops/audit.db` (relocatable via `TRUENAS_AIOPS_HOME`): params (secrets redacted), outcome summary, status, duration, and the risk tier. The CLI writes the same row the MCP path does.
 - `TRUENAS_AUDIT_APPROVED_BY` / `TRUENAS_AUDIT_RATIONALE` are optional annotations recorded on the audit row (who/why); they are never required and never block.
 - **Runaway guard** — a safety backstop, not authorization: cumulative tool calls and wall-time are capped, and a tight scrub/poll loop trips a circuit breaker.
 - Writes support `--dry-run` / `dry_run=True` and double confirmation at the CLI; CLI writes execute through the same governed tools, so they are audited + undo-recorded.

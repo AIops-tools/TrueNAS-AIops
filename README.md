@@ -2,6 +2,8 @@
 
 # TrueNAS AIops
 
+> **Audit availability:** Real writes require a committed `pending` audit row and stop before contacting the platform if storage is unavailable. Reads and previews may continue with a warning; new audit rows store outcome summaries rather than full responses.
+
 > **Disclaimer**: Community-maintained open-source project. **Not affiliated with, endorsed by, or sponsored by iXsystems or the TrueNAS project.** "TrueNAS" is a trademark of its owner. MIT licensed.
 
 AI-powered **TrueNAS SCALE** storage operations with a **built-in governance
